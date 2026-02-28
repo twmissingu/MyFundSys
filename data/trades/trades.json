@@ -1,0 +1,44 @@
+[
+  {
+    "id": "TR202602271931344699",
+    "trade_date": "2024-01-15",
+    "fund_code": "510300",
+    "trade_type": "buy",
+    "amount": 9999.99,
+    "shares": 96.15,
+    "nav": 103.9,
+    "fee": 10.0,
+    "status": "confirmed",
+    "created_at": "2026-02-27T19:31:34.785810",
+    "updated_at": "2026-02-27T19:31:34.785818",
+    "remark": ""
+  },
+  {
+    "id": "TR202602271931344898",
+    "trade_date": "2024-02-15",
+    "fund_code": "510300",
+    "trade_type": "buy",
+    "amount": 4954.91,
+    "shares": 48.5,
+    "nav": 102.06,
+    "fee": 5.0,
+    "status": "confirmed",
+    "created_at": "2026-02-27T19:31:34.788889",
+    "updated_at": "2026-02-27T19:31:34.788894",
+    "remark": ""
+  },
+  {
+    "id": "TR202602271931349563",
+    "trade_date": "2024-03-15",
+    "fund_code": "510300",
+    "trade_type": "sell",
+    "amount": 7492.3,
+    "shares": 70.0,
+    "nav": 107.14,
+    "fee": 7.5,
+    "status": "confirmed",
+    "created_at": "2026-02-27T19:31:34.789120",
+    "updated_at": "2026-02-27T19:31:34.789123",
+    "remark": ""
+  }
+]
