@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/vite-env.d.ts","./src/db/index.ts","./src/hooks/useDB.ts","./src/pages/Dashboard.tsx","./src/pages/FundList.tsx","./src/pages/Holdings.tsx","./src/pages/Layout.tsx","./src/pages/Reports.tsx","./src/pages/Transactions.tsx","./src/types/index.ts","./src/utils/index.ts"],"version":"5.9.3"}
