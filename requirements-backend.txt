@@ -1,4 +1,4 @@
-# MyFundSys - 完整依赖清单
+# 依赖清单
 # 安装命令: pip install -r requirements.txt
 
 # ========== 核心依赖 ==========
@@ -42,6 +42,10 @@ pytz==2023.3.post1
 beautifulsoup4==4.12.2
 lxml==4.9.3
 
+# 浏览器自动化（备用）
+# playwright==1.40.0
+# selenium==4.15.2
+
 # ========== 报告与导出 ==========
 # 模板引擎
 Jinja2==3.1.2
@@ -49,6 +53,17 @@ Jinja2==3.1.2
 # Excel处理
 openpyxl==3.1.2
 xlsxwriter==3.1.9
+
+# PDF生成（可选）
+# reportlab==4.0.7
+# weasyprint==60.2
+
+# ========== 通知服务 ==========
+# 飞书机器人
+# feishu-bot-sdk
+
+# 邮件服务
+# yagmail==0.15.293
 
 # ========== 开发工具 ==========
 # 代码质量
@@ -75,6 +90,14 @@ faker==22.0.0
 responses==0.24.1
 httpretty==1.1.4
 
+# ========== 文档工具 ==========
+# API文档
+flasgger==0.9.7.1
+apispec==6.3.1
+
 # ========== 生产环境 ==========
 # WSGI服务器
 gunicorn==21.2.0
+
+# 进程管理
+supervisor==4.2.5
