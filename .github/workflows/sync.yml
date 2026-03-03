@@ -24,14 +24,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Run data sync
-      run: |
-        python scripts/sync_to_github.py
-    
-    - name: Commit and push
+    - name: Configure Git
       run: |
         git config --local user.email "bot@myfundsys.ai"
         git config --local user.name "MyFundSys Bot"
-        git add data/ logs/
-        git diff --quiet && git diff --staged --quiet || git commit -m "chore: 自动同步数据 $(date +'%Y-%m-%d %H:%M')"
-        git push
+    
+    - name: Run data sync
+      run: |
+        python scripts/sync_to_github.py

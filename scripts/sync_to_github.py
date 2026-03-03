@@ -27,7 +27,12 @@ def sync_data():
     # 提交
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
     commit_msg = f"chore: 自动同步数据 {timestamp}"
-    subprocess.run(['git', 'commit', '-m', commit_msg])
+    commit_result = subprocess.run(['git', 'commit', '-m', commit_msg], 
+                                   capture_output=True, text=True)
+    
+    if commit_result.returncode != 0:
+        print(f"⚠️ 提交失败或无变更: {commit_result.stderr}")
+        return
     
     # 推送
     push_result = subprocess.run(['git', 'push', 'origin', 'main'], 
@@ -36,7 +41,7 @@ def sync_data():
     if push_result.returncode == 0:
         print(f"✅ 数据同步成功 - {timestamp}")
     else:
-        print(f"❌ 同步失败: {push_result.stderr}")
+        print(f"❌ 推送失败: {push_result.stderr}")
 
 
 if __name__ == "__main__":
