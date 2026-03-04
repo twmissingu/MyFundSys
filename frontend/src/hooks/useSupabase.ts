@@ -26,7 +26,7 @@ export function useCurrentUser() {
     getUser();
 
     // 监听认证状态变化
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
       setUser(session?.user ?? null);
     });
 
@@ -166,7 +166,7 @@ export function useHoldings() {
           schema: 'public',
           table: 'holdings',
         },
-        (payload) => {
+        (payload: any) => {
           console.log('Holdings change received:', payload);
           fetchHoldings();
         }
@@ -282,7 +282,7 @@ export function useTransactions(fundCode?: string) {
           schema: 'public',
           table: 'transactions',
         },
-        (payload) => {
+        (payload: any) => {
           console.log('Transactions change received:', payload);
           fetchTransactions();
         }
