@@ -160,7 +160,33 @@ export async function deleteTransaction(id: string) {
   await db.transactions.delete(id);
 }
 
-// 删除持仓
-export async function deleteHolding(id: string) {
-  await db.holdings.delete(id);
+// 导出数据
+export async function exportData(): Promise<string> {
+  const funds = await db.funds.toArray();
+  const holdings = await db.holdings.toArray();
+  const transactions = await db.transactions.toArray();
+  const strategies = await db.strategies.toArray();
+  const articles = await db.articles.toArray();
+
+  return JSON.stringify({
+    funds,
+    holdings,
+    transactions,
+    strategies,
+    articles,
+    exportTime: new Date().toISOString(),
+  }, null, 2);
+}
+
+// 导入数据
+export async function importData(jsonData: string): Promise<void> {
+  const data = JSON.parse(jsonData);
+
+  await db.transaction('rw', [db.funds, db.holdings, db.transactions, db.strategies, db.articles], async () => {
+    if (data.funds) await db.funds.bulkPut(data.funds);
+    if (data.holdings) await db.holdings.bulkPut(data.holdings);
+    if (data.transactions) await db.transactions.bulkPut(data.transactions);
+    if (data.strategies) await db.strategies.bulkPut(data.strategies);
+    if (data.articles) await db.articles.bulkPut(data.articles);
+  });
 }

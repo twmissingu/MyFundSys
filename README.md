@@ -11,6 +11,19 @@
 
 ---
 
+## ✨ 新特性：云同步支持 (v2.1.0)
+
+🎉 **现已支持 Supabase 云同步！**
+
+- ☁️ **跨设备实时同步** - 持仓和交易数据自动同步到所有设备
+- 🔐 **安全身份验证** - 邮箱/密码登录，数据隔离保护
+- ⚡ **实时更新** - 多设备同时使用时数据实时同步
+- 💾 **数据备份** - 云端自动备份，不再担心数据丢失
+
+查看 [Supabase 迁移文档](./SUPABASE_MIGRATION.md) 和 [部署说明](./DEPLOYMENT.md) 了解详情。
+
+---
+
 ## 📁 项目结构
 
 ```
@@ -19,28 +32,22 @@ MyFundSys/
 │   ├── src/
 │   │   ├── components/    # 公共组件
 │   │   ├── pages/         # 页面组件
-│   │   ├── hooks/         # 自定义Hooks
-│   │   ├── db/            # IndexedDB数据库
+│   │   ├── hooks/         # 自定义Hooks (含Supabase)
+│   │   ├── lib/           # Supabase客户端配置
+│   │   ├── db/            # IndexedDB本地存储 (向后兼容)
 │   │   ├── services/      # API服务
 │   │   └── types/         # 类型定义
 │   ├── public/            # 静态资源
 │   └── package.json
 │
-├── backend/                # Python 后端服务
-│   ├── cli_main.py        # CLI主程序（来自fund-system）
-│   ├── src/
-│   │   ├── core/          # 核心模块（数据库、模型、配置）
-│   │   ├── trade/         # 交易模块（买入/卖出/计算）
-│   │   ├── analysis/      # 分析模块（收益/估值/报告）
-│   │   ├── cli/           # 交互式CLI
-│   │   ├── tasks/         # 定时任务调度
-│   │   └── utils/         # 工具函数
-│   └── tests/             # 测试用例
+├── supabase/               # Supabase配置
+│   └── migrations/        # 数据库迁移脚本
 │
-├── api/                    # API接口模块
+├── backend/                # Python 后端服务
+│   ├── cli_main.py        # CLI主程序
+│   └── src/
+│
 ├── data/                   # 数据文件
-│   ├── articles/          # E大文章
-│   └── fund_list.csv      # 基金列表
 ├── scripts/                # 工具脚本
 └── .github/workflows/      # CI/CD配置
 ```
@@ -49,14 +56,30 @@ MyFundSys/
 
 ## 🚀 快速开始
 
-### 前端（React + TypeScript）
+### 前端（React + TypeScript + Supabase）
 
 ```bash
 cd frontend
+
+# 1. 安装依赖
 npm install
-npm run dev      # 开发模式
-npm run build    # 构建生产版本
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入 Supabase 凭证
+
+# 3. 启动开发服务器
+npm run dev
 ```
+
+### Supabase 配置
+
+1. 在 [Supabase](https://supabase.com) 创建项目
+2. 执行 `supabase/migrations/001_initial_schema.sql`
+3. 执行 `supabase/migrations/002_seed_data.sql`
+4. 获取 Project URL 和 Anon Key
+
+详细步骤见 [部署说明](./DEPLOYMENT.md)
 
 ### 后端（Python CLI）
 
@@ -68,17 +91,11 @@ pip install -r requirements.txt
 cd backend
 python cli_main.py init
 
-# 导入基金数据
-python cli_main.py import-funds ../data/fund_list.csv
-
 # 查看持仓
 python cli_main.py holding
 
 # 收益分析
 python cli_main.py profit
-
-# 启动API服务
-python cli_main.py server --host 0.0.0.0 --port 5000
 ```
 
 ---
@@ -89,10 +106,12 @@ python cli_main.py server --host 0.0.0.0 --port 5000
 - 📊 **95只ETF基金** - 涵盖A股宽基、行业、港股、美股、商品、债券
 - 💼 **持仓跟踪** - 实时计算持仓市值和盈亏
 - 📝 **交易记录** - 完整的买入/卖出记录
+- ☁️ **云同步** - Supabase实时同步，跨设备访问
+- 🔐 **用户认证** - 邮箱/密码登录，数据安全隔离
 - 📚 **E大文章库** - 投资理念文章归档，支持搜索
 - 🎯 **投资策略** - 估值策略、定投策略、网格策略
 - 📊 **策略回测** - 历史数据验证策略效果
-- 💾 **本地存储** - IndexedDB本地存储，支持导入/导出
+- 💾 **数据管理** - 支持导入/导出备份
 
 ### 后端功能（CLI + API）
 - 📈 **收益分析** - 持仓收益、盈亏比例、收益率计算
@@ -100,7 +119,6 @@ python cli_main.py server --host 0.0.0.0 --port 5000
 - ⏰ **定时任务** - 自动净值更新、日报生成
 - 💾 **数据备份** - 自动/手动数据库备份
 - 🔍 **估值分析** - 全市场PE/PB计算、历史百分位
-- 🔄 **数据同步** - 自动同步到GitHub
 
 ---
 
@@ -118,53 +136,14 @@ python cli_main.py server --host 0.0.0.0 --port 5000
 
 ---
 
-## 🔧 CLI 命令参考
-
-```bash
-# 系统管理
-python cli_main.py init                    # 初始化数据库
-python cli_main.py status                  # 查看系统状态
-
-# 基金管理
-python cli_main.py fund list               # 列出所有基金
-python cli_main.py fund search <关键词>     # 搜索基金
-python cli_main.py import-funds <文件>      # 导入基金列表
-
-# 交易管理
-python cli_main.py trade buy               # 记录买入
-python cli_main.py trade sell              # 记录卖出
-python cli_main.py trade list              # 查看交易记录
-
-# 持仓与收益
-python cli_main.py holding                 # 查看当前持仓
-python cli_main.py profit                  # 收益分析
-python cli_main.py profit --fund <代码>     # 单只基金收益
-
-# 报告与导出
-python cli_main.py report daily            # 生成日报
-python cli_main.py report weekly           # 生成周报
-python cli_main.py export --format csv     # 导出CSV
-python cli_main.py export --format json    # 导出JSON
-
-# 数据同步
-python cli_main.py sync                    # 手动同步到GitHub
-python cli_main.py backup                  # 备份数据库
-
-# 服务启动
-python cli_main.py server                  # 启动API服务
-python cli_main.py scheduler               # 启动定时任务
-python cli_main.py cli                     # 交互式命令行
-```
-
----
-
 ## 🏗️ 技术栈
 
 ### 前端
 - **框架**: React 18 + TypeScript
 - **构建**: Vite
 - **UI**: Ant Design Mobile
-- **存储**: IndexedDB (Dexie.js)
+- **后端**: Supabase (PostgreSQL + Realtime)
+- **存储**: IndexedDB (本地备用)
 - **图表**: Recharts
 
 ### 后端
@@ -172,25 +151,14 @@ python cli_main.py cli                     # 交互式命令行
 - **数据库**: SQLite
 - **任务调度**: APScheduler
 - **CLI**: Click + Rich
-- **测试**: Pytest
 
 ---
 
-## 📈 开发计划
+## 📚 文档
 
-- [x] 前端基础框架
-- [x] 95只基金数据
-- [x] 持仓管理
-- [x] 交易记录
-- [x] E大文章库
-- [x] 投资策略 + 回测
-- [x] Python CLI 后端（已合并fund-system）
-- [x] 收益分析模块
-- [x] 报告生成
-- [x] 定时任务
-- [ ] 实时净值API对接
-- [ ] 前端与后端API联调
-- [ ] 定投计划提醒
+- [Supabase 迁移文档](./SUPABASE_MIGRATION.md) - 详细迁移指南
+- [部署说明](./DEPLOYMENT.md) - 生产部署步骤
+- [迁移报告](./MIGRATION_REPORT.md) - 技术实现详情
 
 ---
 
@@ -202,6 +170,7 @@ MIT License
 
 - [ETF拯救世界](https://xueqiu.com/4771730473) - 投资理念启发
 - [且慢](https://qieman.com/) - 长赢指数投资
+- [Supabase](https://supabase.com) - 开源后端服务
 
 ---
 

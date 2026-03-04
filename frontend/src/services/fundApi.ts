@@ -4,7 +4,7 @@ import type { FundApiData, MarketValuationData } from '../types';
 export async function fetchFundNav(fundCode: string): Promise<FundApiData | null> {
   try {
     // 使用天天基金网API（需要CORS代理）
-    const url = `https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`;
+    // const url = `https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`;
     
     // 由于浏览器CORS限制，这里使用模拟数据
     // 实际部署时需要通过后端代理或使用支持CORS的API

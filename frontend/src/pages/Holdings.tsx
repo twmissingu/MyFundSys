@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { Card, List, Button, Dialog, Form, Input, Toast, SwipeAction } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
-import { useHoldings, addTransaction, deleteHolding } from '../hooks/useDB';
-import { useFunds } from '../hooks/useDB';
+import { useHoldings, useFunds, addTransaction, deleteHolding } from '../hooks/useSupabase';
 import { formatMoney, formatPercent } from '../utils';
 import './Layout.css';
 
 const Holdings: React.FC = () => {
-  const { holdings, loading, refresh } = useHoldings();
+  const { holdings, refresh } = useHoldings();
   const { funds } = useFunds();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [form] = Form.useForm();
@@ -46,6 +45,7 @@ const Holdings: React.FC = () => {
       form.resetFields();
       refresh();
     } catch (error) {
+      console.error('Add transaction error:', error);
       Toast.show({ content: '添加失败', position: 'bottom' });
     }
   };

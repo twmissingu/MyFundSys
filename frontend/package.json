@@ -1,7 +1,7 @@
 {
   "name": "myfundsys",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0",
+    "@supabase/supabase-js": "^2.49.1",
     "dexie": "^4.0.8",
     "recharts": "^2.12.7",
     "antd-mobile": "^5.37.1",

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { Card, List, Button, Dialog, Form, Input, Toast, Tabs, Tag } from 'antd-mobile';
-import { useStrategies } from '../hooks/useDB';
+import { Card, List, Button, Dialog, Form, Input, Toast, Tag } from 'antd-mobile';
+import { useStrategies } from '../hooks/useSupabase';
 import { runBacktest, generateMockPriceData } from '../services/backtest';
 import { formatMoney, formatPercent } from '../utils';
 import type { Strategy, BacktestResult } from '../types';
 import './Layout.css';
 
 const StrategyPage: React.FC = () => {
-  const { strategies, loading } = useStrategies();
+  const { strategies } = useStrategies();
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [showBacktestDialog, setShowBacktestDialog] = useState(false);

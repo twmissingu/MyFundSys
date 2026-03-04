@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog } from 'antd-mobile';
-import { useTransactions, deleteTransaction } from '../hooks/useDB';
+import { useTransactions, deleteTransaction } from '../hooks/useSupabase';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
 const Transactions: React.FC = () => {
   const [activeType, setActiveType] = useState('all');
-  const { transactions, loading, refresh } = useTransactions();
+  const { transactions, refresh } = useTransactions();
 
   // 筛选交易记录
   const filteredTransactions = transactions.filter(t => {

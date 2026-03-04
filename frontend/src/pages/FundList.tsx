@@ -1,59 +1,45 @@
-import React, { useState, useEffect } from 'react';
-import { List, SearchBar, Tabs, Tag, Toast } from 'antd-mobile';
-import { useFunds } from '../hooks/useDB';
-import { fetchMultipleFundsNav } from '../services/fundApi';
-import { formatMoney, formatPercent } from '../utils';
-import type { Fund, FundApiData } from '../types';
+import React, { useState } from 'react';
+import { Card, List, SearchBar, Tag } from 'antd-mobile';
+import { useFunds } from '../hooks/useSupabase';
 import './Layout.css';
 
 const FundList: React.FC = () => {
-  const { funds, loading } = useFunds();
+  const { funds } = useFunds();
   const [searchText, setSearchText] = useState('');
-  const [fundData, setFundData] = useState<Record<string, FundApiData>>({});
-  const [activeCategory, setActiveCategory] = useState('全部');
-
-  // 基金分类
-  const categories = ['全部', 'A股宽基', 'A股行业', '港股', '美股', '商品', '债券'];
-
-  useEffect(() => {
-    loadFundData();
-  }, [funds]);
-
-  const loadFundData = async () => {
-    if (funds.length === 0) return;
-    
-    try {
-      const codes = funds.map(f => f.code);
-      const data = await fetchMultipleFundsNav(codes);
-      const dataMap: Record<string, FundApiData> = {};
-      data.forEach(item => {
-        dataMap[item.code] = item;
-      });
-      setFundData(dataMap);
-    } catch (error) {
-      console.error('获取基金数据失败:', error);
-    }
-  };
 
   // 筛选基金
   const filteredFunds = funds.filter(fund => {
-    const matchSearch = 
-      fund.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      fund.code.includes(searchText);
-    const matchCategory = activeCategory === '全部' || fund.category === activeCategory;
-    return matchSearch && matchCategory;
+    if (!searchText) return true;
+    const search = searchText.toLowerCase();
+    return (
+      fund.code.toLowerCase().includes(search) ||
+      fund.name.toLowerCase().includes(search) ||
+      fund.category.toLowerCase().includes(search)
+    );
   });
+
+  // 按分类分组
+  const groupedFunds = filteredFunds.reduce((groups, fund) => {
+    const category = fund.category;
+    if (!groups[category]) {
+      groups[category] = [];
+    }
+    groups[category].push(fund);
+    return groups;
+  }, {} as Record<string, typeof funds>);
+
+  const categories = Object.keys(groupedFunds).sort();
 
   const getCategoryColor = (category: string) => {
     const colors: Record<string, string> = {
-      'A股宽基': '#1677ff',
-      'A股行业': '#52c41a',
-      '港股': '#722ed1',
-      '美股': '#eb2f96',
-      '商品': '#fa8c16',
-      '债券': '#13c2c2',
+      'A股宽基': 'primary',
+      'A股行业': 'success',
+      '港股': 'warning',
+      '美股': 'danger',
+      '商品': 'default',
+      '债券': 'success',
     };
-    return colors[category] || '#999';
+    return colors[category] || 'default';
   };
 
   return (
@@ -61,82 +47,47 @@ const FundList: React.FC = () => {
       <h1 className="page-title">基金列表</h1>
 
       <SearchBar
-        placeholder="搜索基金名称或代码"
+        placeholder="搜索基金代码或名称"
         value={searchText}
         onChange={setSearchText}
         style={{ marginBottom: 12 }}
       />
 
-      <Tabs
-        activeKey={activeCategory}
-        onChange={setActiveCategory}
-        style={{ marginBottom: 12 }}
-      >
-        {categories.map(cat => (
-          <Tabs.Tab title={cat} key={cat} />
-        ))}
-      </Tabs>
+      <div style={{ marginBottom: 12 }}>
+        <Tag color="primary">共 {filteredFunds.length} 只基金</Tag>
+      </div>
 
-      <div className="card">
-        <List>
-          {filteredFunds.map(fund => {
-            const data = fundData[fund.code];
-            const dailyChange = data?.dailyChangeRate || 0;
-            
-            return (
+      {categories.map(category => (
+        <Card 
+          key={category} 
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Tag color={getCategoryColor(category)}>{category}</Tag>
+            <span style={{ fontSize: 13, color: '#999' }}>({groupedFunds[category].length}只)</span>
+          </div>} 
+          className="card"
+          style={{ marginBottom: 12 }}
+        >
+          <List>
+            {groupedFunds[category].map(fund => (
               <List.Item
                 key={fund.id}
                 title={<div style={{ fontSize: 15, fontWeight: 500 }}>{fund.name}</div>}
                 description={
-                  <div>
-                    <Tag color={getCategoryColor(fund.category)} style={{ fontSize: 11 }}>
-                      {fund.category}
-                    </Tag>
-                    <span style={{ fontSize: 13, color: '#999', marginLeft: 8 }}>
-                      {fund.code}
-                    </span>
+                  <div style={{ fontSize: 13, color: '#999' }}>
+                    代码: {fund.code}
                   </div>
                 }
-                extra={
-                  data ? (
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 15, fontWeight: 500 }}>
-                        {data.nav.toFixed(4)}
-                      </div>
-                      <div 
-                        style={{ 
-                          fontSize: 13, 
-                          color: dailyChange >= 0 ? '#ff4d4f' : '#52c41a' 
-                        }}
-                      >
-                        {dailyChange >= 0 ? '+' : ''}{dailyChange.toFixed(2)}%
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 13, color: '#999' }}>加载中...</div>
-                  )
-                }
-                onClick={() => {
-                  Toast.show({
-                    content: `${fund.name} (${fund.code})`,
-                    position: 'bottom',
-                  });
-                }}
               />
-            );
-          })}
-        </List>
-        
-        {filteredFunds.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            未找到匹配的基金
-          </div>
-        )}
-      </div>
+            ))}
+          </List>
+        </Card>
+      ))}
 
-      <div style={{ textAlign: 'center', padding: '12px', color: '#999', fontSize: 13 }}>
-        共 {filteredFunds.length} 只基金
-      </div>
+      {filteredFunds.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+          未找到匹配的基金
+        </div>
+      )}
     </div>
   );
 };

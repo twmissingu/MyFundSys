@@ -6,15 +6,14 @@ import type { Article } from '../types';
 import './Layout.css';
 
 // 文章数据 - 从Markdown文件导入
-const articleModules = import.meta.glob('/data/articles/**/*.md', { as: 'raw' });
+// const articleModules = import.meta.glob('/data/articles/**/*.md', { as: 'raw' });
 
 const Articles: React.FC = () => {
-  const { initialized } = useInitDB();
+  useInitDB();
   const [articles, setArticles] = useState<Article[]>([]);
   const [searchText, setSearchText] = useState('');
   const [activeSource, setActiveSource] = useState('all');
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
-  const [loading, setLoading] = useState(true);
 
   // 加载文章数据
   useEffect(() => {
@@ -23,8 +22,6 @@ const Articles: React.FC = () => {
 
   const loadArticles = async () => {
     try {
-      setLoading(true);
-      
       // 从IndexedDB加载文章
       const storedArticles = await db.articles.toArray();
       
@@ -157,8 +154,6 @@ const Articles: React.FC = () => {
     } catch (error) {
       console.error('加载文章失败:', error);
       Toast.show({ content: '加载文章失败', position: 'bottom' });
-    } finally {
-      setLoading(false);
     }
   };
 

@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { Card, List, Button, Toast, Dialog, Form, Input } from 'antd-mobile';
+import { Card, List, Button, Toast, Dialog, Tag } from 'antd-mobile';
 import { exportDatabase, importDatabase } from '../db';
-import { downloadJSON, readJSONFile } from '../utils';
+import { useCurrentUser } from '../hooks/useSupabase';
+import { isSupabaseConfigured } from '../lib/supabase';
 import './Layout.css';
 
 const Settings: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const { user } = useCurrentUser();
+  const isConfigured = isSupabaseConfigured();
 
   const handleExport = async () => {
     try {
@@ -54,11 +57,16 @@ const Settings: React.FC = () => {
           <p><strong>MyFundSys v2.0.0</strong></p>
           <p>基于 E大（ETF拯救世界）投资理念的基金投资管理系统</p>
           <p style={{ fontSize: 12, color: '#999' }}>
-            技术栈: React + TypeScript + Vite + IndexedDB
+            技术栈: React + TypeScript + Vite + Supabase
           </p>
           <p style={{ fontSize: 12, color: '#999' }}>
-            数据存储: 浏览器本地存储
+            数据存储: {isConfigured ? 'Supabase云同步' : '浏览器本地存储'}
           </p>
+          {isConfigured && user && (
+            <p style={{ fontSize: 12, color: '#52c41a' }}>
+              已登录: {(user as any).email}
+            </p>
+          )}
         </div>
       ),
     });
@@ -72,13 +80,16 @@ const Settings: React.FC = () => {
           <p><strong>1. 添加基金持仓</strong></p>
           <p>在"持仓"页面点击"添加交易"，输入基金代码、交易金额和价格。系统会自动计算份额并更新持仓。</p>
           
-          <p><strong>2. 查看E大文章</strong></p>
+          <p><strong>2. 云同步功能</strong></p>
+          <p>登录后，您的持仓和交易数据会自动同步到云端，支持多设备实时同步。</p>
+          
+          <p><strong>3. 查看E大文章</strong></p>
           <p>在"文章"页面可以阅读E大的投资文章，学习投资理念。</p>
           
-          <p><strong>3. 策略回测</strong></p>
+          <p><strong>4. 策略回测</strong></p>
           <p>在"策略"页面选择策略并运行回测，查看策略历史表现。</p>
           
-          <p><strong>4. 数据备份</strong></p>
+          <p><strong>5. 数据备份</strong></p>
           <p>定期导出数据备份，防止数据丢失。也可以导入之前备份的数据。</p>
         </div>
       ),
@@ -88,6 +99,34 @@ const Settings: React.FC = () => {
   return (
     <div className="page-container">
       <h1 className="page-title">设置</h1>
+
+      {/* 云同步状态 */}
+      {isConfigured && (
+        <Card 
+          title="云同步状态" 
+          className="card"
+          style={{ 
+            background: user ? '#f6ffed' : '#fff7e6',
+            border: user ? '1px solid #b7eb8f' : '1px solid #ffd591'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>
+                {user ? '已开启云同步' : '未登录'}
+              </div>
+              <div style={{ fontSize: 13, color: '#666' }}>
+                {user 
+                  ? `当前用户: ${(user as any).email}` 
+                  : '登录后可实现多设备数据同步'}
+              </div>
+            </div>
+            <Tag color={user ? 'success' : 'warning'}>
+              {user ? '已同步' : '本地模式'}
+            </Tag>
+          </div>
+        </Card>
+      )}
 
       <Card title="数据管理" className="card">
         <List>
@@ -154,6 +193,7 @@ const Settings: React.FC = () => {
         MyFundSys v2.0.0
         <br />
         基于 E大投资理念
+        {isConfigured && <><br /><span style={{ color: '#52c41a' }}>已启用云同步</span></>}
       </div>
     </div>
   );

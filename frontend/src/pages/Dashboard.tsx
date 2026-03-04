@@ -1,26 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Grid, ProgressBar, Toast } from 'antd-mobile';
-import { useInitDB, useHoldings } from '../hooks/useDB';
+import { Card, Grid, Toast } from 'antd-mobile';
+import { useHoldings, useFunds } from '../hooks/useSupabase';
 import { fetchMarketValuation } from '../services/fundApi';
 import { formatMoney, formatPercent, getValuationStatus } from '../utils';
 import type { MarketValuationData } from '../types';
 import './Layout.css';
 
 const Dashboard: React.FC = () => {
-  const { initialized } = useInitDB();
-  const { holdings, loading: holdingsLoading } = useHoldings();
+  const { holdings } = useHoldings();
+  useFunds();
   const [valuation, setValuation] = useState<MarketValuationData | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (initialized) {
-      loadValuation();
-    }
-  }, [initialized]);
+    loadValuation();
+  }, []);
 
   const loadValuation = async () => {
     try {
-      setLoading(true);
       const data = await fetchMarketValuation();
       setValuation(data);
     } catch (error) {
@@ -28,8 +24,6 @@ const Dashboard: React.FC = () => {
         content: '获取估值数据失败',
         position: 'bottom',
       });
-    } finally {
-      setLoading(false);
     }
   };
 
