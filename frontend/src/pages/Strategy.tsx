@@ -332,7 +332,10 @@ const StrategyPage: React.FC = () => {
               key: 'confirm',
               text: '创建',
               bold: true,
-              onClick: () => createForm.submit().then(() => handleCreateStrategy(createForm.getFieldsValue())),
+              onClick: async () => {
+                const values = createForm.getFieldsValue();
+                await handleCreateStrategy(values);
+              },
             },
           ],
         ]}

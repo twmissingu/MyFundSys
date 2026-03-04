@@ -428,41 +428,41 @@ export function useStrategies() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  const fetchStrategies = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+
+      const formattedStrategies: Strategy[] = (data as any[])?.map(s => ({
+        id: s.id,
+        name: s.name,
+        description: s.description || '',
+        type: s.type as 'valuation' | 'trend' | 'grid' | 'custom',
+        rules: (s.rules as any[])?.map(r => ({
+          condition: r.condition,
+          action: r.action,
+          params: r.params,
+        })) || [],
+        createdAt: s.created_at,
+        updatedAt: s.updated_at,
+      })) || [];
+
+      setStrategies(formattedStrategies);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchStrategies = async () => {
-      try {
-        setLoading(true);
-        const { data, error } = await supabase
-          .from('strategies')
-          .select('*')
-          .order('name');
-
-        if (error) throw error;
-
-        const formattedStrategies: Strategy[] = (data as any[])?.map(s => ({
-          id: s.id,
-          name: s.name,
-          description: s.description || '',
-          type: s.type as 'valuation' | 'trend' | 'grid' | 'custom',
-          rules: (s.rules as any[])?.map(r => ({
-            condition: r.condition,
-            action: r.action,
-            params: r.params,
-          })) || [],
-          createdAt: s.created_at,
-          updatedAt: s.updated_at,
-        })) || [];
-
-        setStrategies(formattedStrategies);
-      } catch (err) {
-        setError(err as Error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchStrategies();
   }, []);
 
-  return { strategies, loading, error };
+  return { strategies, loading, error, refresh: fetchStrategies };
 }
