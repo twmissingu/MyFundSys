@@ -42,6 +42,11 @@ const FundList: React.FC = () => {
     return colors[category] || 'default';
   };
 
+  const handleFundClick = (fundCode: string) => {
+    // 使用 hash 路由跳转到详情页
+    window.location.hash = `fund/${fundCode}`;
+  };
+
   return (
     <div className="page-container">
       <h1 className="page-title">基金列表</h1>
@@ -77,6 +82,8 @@ const FundList: React.FC = () => {
                     代码: {fund.code}
                   </div>
                 }
+                onClick={() => handleFundClick(fund.code)}
+                arrow
               />
             ))}
           </List>

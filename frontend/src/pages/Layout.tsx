@@ -9,6 +9,7 @@ import {
 } from 'antd-mobile-icons';
 import Dashboard from './Dashboard';
 import FundList from './FundList';
+import FundDetail from './FundDetail';
 import Holdings from './Holdings';
 import Transactions from './Transactions';
 import Articles from './Articles';
@@ -22,8 +23,39 @@ import './Layout.css';
 const Layout: React.FC = () => {
   const [activeKey, setActiveKey] = useState('dashboard');
   const [showAuth, setShowAuth] = useState(false);
+  const [currentView, setCurrentView] = useState<{ type: string; params?: any }>({ type: 'tab' });
   const { user } = useCurrentUser();
   const isConfigured = isSupabaseConfigured();
+
+  // 监听 hash 变化
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      
+      if (hash.startsWith('fund/')) {
+        const fundCode = hash.replace('fund/', '');
+        setCurrentView({ type: 'fundDetail', params: { fundCode } });
+      } else if (hash === 'holdings') {
+        setActiveKey('holdings');
+        setCurrentView({ type: 'tab' });
+      } else if (hash === 'transactions') {
+        setActiveKey('transactions');
+        setCurrentView({ type: 'tab' });
+      } else if (hash === 'funds') {
+        setActiveKey('funds');
+        setCurrentView({ type: 'tab' });
+      } else if (hash === 'articles') {
+        setActiveKey('articles');
+        setCurrentView({ type: 'tab' });
+      } else {
+        setCurrentView({ type: 'tab' });
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   // 如果没有配置 Supabase，显示警告
   useEffect(() => {
@@ -88,6 +120,14 @@ const Layout: React.FC = () => {
     }
   };
 
+  // 渲染当前内容
+  const renderContent = () => {
+    if (currentView.type === 'fundDetail') {
+      return <FundDetail />;
+    }
+    return activeTab?.component;
+  };
+
   // 如果显示认证页面
   if (showAuth) {
     return (
@@ -141,22 +181,24 @@ const Layout: React.FC = () => {
         className="content" 
         style={{ 
           paddingTop: isConfigured ? 44 : 0,
-          paddingBottom: 60,
+          paddingBottom: currentView.type === 'tab' ? 60 : 0,
         }}
       >
-        {activeTab?.component}
+        {renderContent()}
       </div>
 
-      <TabBar
-        activeKey={activeKey}
-        onChange={setActiveKey}
-        className="tab-bar"
-        style={{ height: 60 }}
-      >
-        {tabs.map(tab => (
-          <TabBar.Item key={tab.key} icon={tab.icon} title={tab.title} />
-        ))}
-      </TabBar>
+      {currentView.type === 'tab' && (
+        <TabBar
+          activeKey={activeKey}
+          onChange={setActiveKey}
+          className="tab-bar"
+          style={{ height: 60 }}
+        >
+          {tabs.map(tab => (
+            <TabBar.Item key={tab.key} icon={tab.icon} title={tab.title} />
+          ))}
+        </TabBar>
+      )}
     </div>
   );
 };
