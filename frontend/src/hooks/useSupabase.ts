@@ -60,6 +60,14 @@ export async function signOut() {
   return { error };
 }
 
+// 密码重置
+export async function resetPassword(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/MyFundSys/reset-password`,
+  });
+  return { error };
+}
+
 // ============================================
 // 基金数据 Hooks
 // ============================================

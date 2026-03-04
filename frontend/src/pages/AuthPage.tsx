@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Form, Input, Button, Toast, Tabs } from 'antd-mobile';
-import { signIn, signUp } from '../hooks/useSupabase';
+import { signIn, signUp, resetPassword } from '../hooks/useSupabase';
 import './Layout.css';
 
 interface AuthPageProps {
@@ -12,6 +12,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [loginForm] = Form.useForm();
   const [registerForm] = Form.useForm();
+  const [resetForm] = Form.useForm();
 
   const handleLogin = async (values: any) => {
     try {
@@ -82,6 +83,182 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
     }
   };
 
+  const handleResetPassword = async (values: any) => {
+    try {
+      setLoading(true);
+      const { error } = await resetPassword(values.email);
+      
+      if (error) {
+        Toast.show({
+          content: error.message || '重置失败',
+          position: 'bottom',
+        });
+        return;
+      }
+
+      Toast.show({
+        content: '重置链接已发送到您的邮箱',
+        position: 'bottom',
+      });
+      setActiveTab('login');
+      resetForm.resetFields();
+    } catch (error) {
+      Toast.show({
+        content: '重置失败，请重试',
+        position: 'bottom',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderLoginForm = () => (
+    <Form
+      form={loginForm}
+      layout="vertical"
+      onFinish={handleLogin}
+      footer={
+        <>
+          <Button
+            block
+            type="submit"
+            color="primary"
+            loading={loading}
+            size="large"
+          >
+            登录
+          </Button>
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <Button
+              fill="none"
+              size="small"
+              onClick={() => setActiveTab('reset')}
+            >
+              忘记密码？
+            </Button>
+          </div>
+        </>
+      }
+    >
+      <Form.Item
+        name="email"
+        label="邮箱"
+        rules={[
+          { required: true, message: '请输入邮箱' },
+          { type: 'email', message: '请输入有效的邮箱地址' },
+        ]}
+      >
+        <Input placeholder="请输入邮箱" type="email" />
+      </Form.Item>
+
+      <Form.Item
+        name="password"
+        label="密码"
+        rules={[
+          { required: true, message: '请输入密码' },
+          { min: 6, message: '密码至少6位' },
+        ]}
+      >
+        <Input placeholder="请输入密码" type="password" />
+      </Form.Item>
+    </Form>
+  );
+
+  const renderRegisterForm = () => (
+    <Form
+      form={registerForm}
+      layout="vertical"
+      onFinish={handleRegister}
+      footer={
+        <Button
+          block
+          type="submit"
+          color="primary"
+          loading={loading}
+          size="large"
+        >
+          注册
+        </Button>
+      }
+    >
+      <Form.Item
+        name="email"
+        label="邮箱"
+        rules={[
+          { required: true, message: '请输入邮箱' },
+          { type: 'email', message: '请输入有效的邮箱地址' },
+        ]}
+      >
+        <Input placeholder="请输入邮箱" type="email" />
+      </Form.Item>
+
+      <Form.Item
+        name="password"
+        label="密码"
+        rules={[
+          { required: true, message: '请输入密码' },
+          { min: 6, message: '密码至少6位' },
+        ]}
+      >
+        <Input placeholder="请输入密码" type="password" />
+      </Form.Item>
+
+      <Form.Item
+        name="confirmPassword"
+        label="确认密码"
+        rules={[
+          { required: true, message: '请确认密码' },
+        ]}
+      >
+        <Input placeholder="请再次输入密码" type="password" />
+      </Form.Item>
+    </Form>
+  );
+
+  const renderResetForm = () => (
+    <Form
+      form={resetForm}
+      layout="vertical"
+      onFinish={handleResetPassword}
+      footer={
+        <>
+          <Button
+            block
+            type="submit"
+            color="primary"
+            loading={loading}
+            size="large"
+          >
+            发送重置链接
+          </Button>
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <Button
+              fill="none"
+              size="small"
+              onClick={() => setActiveTab('login')}
+            >
+              返回登录
+            </Button>
+          </div>
+        </>
+      }
+    >
+      <Form.Item
+        name="email"
+        label="邮箱"
+        rules={[
+          { required: true, message: '请输入邮箱' },
+          { type: 'email', message: '请输入有效的邮箱地址' },
+        ]}
+      >
+        <Input placeholder="请输入注册时的邮箱" type="email" />
+      </Form.Item>
+      <p style={{ color: '#666', fontSize: 13, marginTop: 8 }}>
+        我们将向您的邮箱发送密码重置链接，请注意查收。
+      </p>
+    </Form>
+  );
+
   return (
     <div className="page-container">
       <div style={{ textAlign: 'center', padding: '40px 0 20px' }}>
@@ -91,7 +268,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
 
       <Card className="card">
         <Tabs
-          activeKey={activeTab}
+          activeKey={activeTab === 'reset' ? 'login' : activeTab}
           onChange={setActiveTab}
           style={{ marginBottom: 20 }}
         >
@@ -99,95 +276,9 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
           <Tabs.Tab title="注册" key="register" />
         </Tabs>
 
-        {activeTab === 'login' ? (
-          <Form
-            form={loginForm}
-            layout="vertical"
-            onFinish={handleLogin}
-            footer={
-              <Button
-                block
-                type="submit"
-                color="primary"
-                loading={loading}
-                size="large"
-              >
-                登录
-              </Button>
-            }
-          >
-            <Form.Item
-              name="email"
-              label="邮箱"
-              rules={[
-                { required: true, message: '请输入邮箱' },
-                { type: 'email', message: '请输入有效的邮箱地址' },
-              ]}
-            >
-              <Input placeholder="请输入邮箱" type="email" />
-            </Form.Item>
-
-            <Form.Item
-              name="password"
-              label="密码"
-              rules={[
-                { required: true, message: '请输入密码' },
-                { min: 6, message: '密码至少6位' },
-              ]}
-            >
-              <Input placeholder="请输入密码" type="password" />
-            </Form.Item>
-          </Form>
-        ) : (
-          <Form
-            form={registerForm}
-            layout="vertical"
-            onFinish={handleRegister}
-            footer={
-              <Button
-                block
-                type="submit"
-                color="primary"
-                loading={loading}
-                size="large"
-              >
-                注册
-              </Button>
-            }
-          >
-            <Form.Item
-              name="email"
-              label="邮箱"
-              rules={[
-                { required: true, message: '请输入邮箱' },
-                { type: 'email', message: '请输入有效的邮箱地址' },
-              ]}
-            >
-              <Input placeholder="请输入邮箱" type="email" />
-            </Form.Item>
-
-            <Form.Item
-              name="password"
-              label="密码"
-              rules={[
-                { required: true, message: '请输入密码' },
-                { min: 6, message: '密码至少6位' },
-              ]}
-            >
-              <Input placeholder="请输入密码" type="password" />
-            </Form.Item>
-
-            <Form.Item
-              name="confirmPassword"
-              label="确认密码"
-              rules={[
-                { required: true, message: '请确认密码' },
-              ]}
-            >
-              <Input placeholder="请再次输入密码" type="password" />
-            </Form.Item>
-          </Form>
-        )}
+        {activeTab === 'login' && renderLoginForm()}
+        {activeTab === 'register' && renderRegisterForm()}
+        {activeTab === 'reset' && renderResetForm()}
       </Card>
 
       <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: 13 }}>
