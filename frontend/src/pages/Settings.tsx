@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { Card, List, Button, Toast, Dialog, Tag } from 'antd-mobile';
 import { exportDatabase, importDatabase } from '../db';
-import { useCurrentUser } from '../hooks/useSupabase';
+import { useCurrentUser, useHoldings, useTransactions } from '../hooks/useSupabase';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { exportHoldingsToCSV, exportTransactionsToCSV, parseCSV } from '../utils/csv';
 import './Layout.css';
 
 const Settings: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const { user } = useCurrentUser();
+  const { holdings } = useHoldings();
+  const { transactions } = useTransactions();
   const isConfigured = isSupabaseConfigured();
 
   const handleExport = async () => {
@@ -49,12 +52,34 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleExportHoldingsCSV = () => {
+    exportHoldingsToCSV(holdings);
+  };
+
+  const handleExportTransactionsCSV = () => {
+    exportTransactionsToCSV(transactions);
+  };
+
+  const handleImportHoldingsCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const data = parseCSV(content);
+      Toast.show({ content: `读取到 ${data.length} 条数据`, position: 'bottom' });
+      console.log('导入的持仓数据:', data);
+    } catch (error) {
+      Toast.show({ content: 'CSV解析失败', position: 'bottom' });
+    }
+  };
+
   const showAbout = () => {
     Dialog.alert({
       title: '关于 MyFundSys',
       content: (
         <div style={{ textAlign: 'center' }}>
-          <p><strong>MyFundSys v2.0.0</strong></p>
+          <p><strong>MyFundSys v2.2.0</strong></p>
           <p>基于 E大（ETF拯救世界）投资理念的基金投资管理系统</p>
           <p style={{ fontSize: 12, color: '#999' }}>
             技术栈: React + TypeScript + Vite + Supabase
@@ -128,7 +153,7 @@ const Settings: React.FC = () => {
         </Card>
       )}
 
-      <Card title="数据管理" className="card">
+      <Card title="数据管理 (JSON)" className="card">
         <List>
           <List.Item
             title="导出数据"
@@ -157,6 +182,32 @@ const Settings: React.FC = () => {
                 导入
               </Button>
             </label>
+          </List.Item>
+        </List>
+      </Card>
+
+      <Card title="数据导出 (CSV)" className="card">
+        <List>
+          <List.Item
+            title="导出持仓"
+            description="导出持仓数据为Excel格式"
+            onClick={handleExportHoldingsCSV}
+            arrow={false}
+          >
+            <Button size="small" color="primary">
+              导出
+            </Button>
+          </List.Item>
+
+          <List.Item
+            title="导出交易记录"
+            description="导出交易记录为Excel格式"
+            onClick={handleExportTransactionsCSV}
+            arrow={false}
+          >
+            <Button size="small" color="primary">
+              导出
+            </Button>
           </List.Item>
         </List>
       </Card>
@@ -190,7 +241,7 @@ const Settings: React.FC = () => {
       </Card>
 
       <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: 12 }}>
-        MyFundSys v2.0.0
+        MyFundSys v2.2.0
         <br />
         基于 E大投资理念
         {isConfigured && <><br /><span style={{ color: '#52c41a' }}>已启用云同步</span></>}

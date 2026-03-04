@@ -1,17 +1,22 @@
 import React, { useState } from 'react';
-import { Card, List, Button, Dialog, Form, Input, Toast, Tag } from 'antd-mobile';
+import { Card, List, Button, Dialog, Form, Input, Toast, Tag, Picker, SwipeAction } from 'antd-mobile';
 import { useStrategies } from '../hooks/useSupabase';
 import { runBacktest, generateMockPriceData } from '../services/backtest';
 import { formatMoney, formatPercent } from '../utils';
-import type { Strategy, BacktestResult } from '../types';
+import type { Strategy, BacktestResult, StrategyRule } from '../types';
 import './Layout.css';
 
 const StrategyPage: React.FC = () => {
-  const { strategies } = useStrategies();
+  const { strategies, refresh } = useStrategies();
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [showBacktestDialog, setShowBacktestDialog] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showAddRuleDialog, setShowAddRuleDialog] = useState(false);
   const [form] = Form.useForm();
+  const [createForm] = Form.useForm();
+  const [ruleForm] = Form.useForm();
+  const [customRules, setCustomRules] = useState<StrategyRule[]>([]);
 
   const runStrategyBacktest = async (values: any) => {
     if (!selectedStrategy) return;
@@ -19,7 +24,6 @@ const StrategyPage: React.FC = () => {
     try {
       Toast.show({ content: '回测运行中...', position: 'bottom' });
       
-      // 生成模拟价格数据
       const priceData = generateMockPriceData(
         values.startDate,
         values.endDate,
@@ -43,6 +47,55 @@ const StrategyPage: React.FC = () => {
     }
   };
 
+  const handleCreateStrategy = async (values: any) => {
+    try {
+      if (customRules.length === 0) {
+        Toast.show({ content: '请至少添加一条规则', position: 'bottom' });
+        return;
+      }
+
+      const newStrategy: Strategy = {
+        id: `s_${Date.now()}`,
+        name: values.name,
+        description: values.description,
+        type: 'custom',
+        rules: customRules,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // 保存到本地存储
+      const savedStrategies = JSON.parse(localStorage.getItem('customStrategies') || '[]');
+      savedStrategies.push(newStrategy);
+      localStorage.setItem('customStrategies', JSON.stringify(savedStrategies));
+
+      Toast.show({ content: '策略创建成功', position: 'bottom' });
+      setShowCreateDialog(false);
+      setCustomRules([]);
+      createForm.resetFields();
+      
+      // 刷新策略列表
+      if (refresh) refresh();
+    } catch (error) {
+      Toast.show({ content: '创建失败', position: 'bottom' });
+    }
+  };
+
+  const handleAddRule = (values: any) => {
+    const newRule: StrategyRule = {
+      condition: values.condition,
+      action: values.action,
+      params: { ratio: Number(values.ratio) },
+    };
+    setCustomRules([...customRules, newRule]);
+    setShowAddRuleDialog(false);
+    ruleForm.resetFields();
+  };
+
+  const handleDeleteRule = (index: number) => {
+    setCustomRules(customRules.filter((_, i) => i !== index));
+  };
+
   const getStrategyTypeText = (type: string) => {
     const types: Record<string, string> = {
       'valuation': '估值策略',
@@ -53,12 +106,35 @@ const StrategyPage: React.FC = () => {
     return types[type] || type;
   };
 
+  const getActionText = (action: string) => {
+    const actions: Record<string, string> = {
+      'buy': '买入',
+      'sell': '卖出',
+      'hold': '持有',
+    };
+    return actions[action] || action;
+  };
+
+  // 合并系统策略和自定义策略
+  const customStrategies = JSON.parse(localStorage.getItem('customStrategies') || '[]');
+  const allStrategies = [...strategies, ...customStrategies];
+
   return (
     <div className="page-container">
       <h1 className="page-title">投资策略</h1>
 
-      <Card title="策略列表" className="card">
-        {strategies.map(strategy => (
+      <div style={{ marginBottom: 12 }}>
+        <Button 
+          block 
+          color="primary" 
+          onClick={() => setShowCreateDialog(true)}
+        >
+          + 创建自定义策略
+        </Button>
+      </div>
+
+      <Card title={`策略列表 (${allStrategies.length})`} className="card">
+        {allStrategies.map(strategy => (
           <div 
             key={strategy.id} 
             className="list-item"
@@ -69,8 +145,14 @@ const StrategyPage: React.FC = () => {
               <div className="item-title">{strategy.name}</div>
               <div className="item-subtitle">{strategy.description}</div>
               <div style={{ marginTop: 4 }}>
-                <Tag color="primary" style={{ fontSize: 11 }}>
+                <Tag 
+                  color={strategy.type === 'custom' ? 'warning' : 'primary'} 
+                  style={{ fontSize: 11 }}
+                >
                   {getStrategyTypeText(strategy.type)}
+                </Tag>
+                <Tag style={{ fontSize: 11, marginLeft: 8 }}>
+                  {strategy.rules.length}条规则
                 </Tag>
               </div>
             </div>
@@ -103,7 +185,9 @@ const StrategyPage: React.FC = () => {
             </div>
             
             <div style={{ marginBottom: 12 }}>
-              <Tag color="primary">{getStrategyTypeText(selectedStrategy.type)}</Tag>
+              <Tag color={selectedStrategy.type === 'custom' ? 'warning' : 'primary'}>
+                {getStrategyTypeText(selectedStrategy.type)}
+              </Tag>
             </div>
 
             <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>
@@ -114,7 +198,7 @@ const StrategyPage: React.FC = () => {
                 <List.Item
                   key={index}
                   title={`规则 ${index + 1}`}
-                  description={`${rule.condition} → ${rule.action}`}
+                  description={`${rule.condition} → ${getActionText(rule.action)} ${rule.params.ratio || ''}`}
                 />
               ))}
             </List>
@@ -141,56 +225,188 @@ const StrategyPage: React.FC = () => {
               回测区间: {backtestResult.startDate} 至 {backtestResult.endDate}
             </div>
 
-            <div className="list-item">
-              <span>初始资金</span>
-              <span style={{ fontWeight: 500 }}>{formatMoney(backtestResult.initialCapital)}</span>
-            </div>
-            
-            <div className="list-item">
-              <span>最终资产</span>
-              <span style={{ fontWeight: 500 }}>{formatMoney(backtestResult.finalValue)}</span>
-            </div>
-            
-            <div className="list-item">
-              <span>总收益率</span>
-              <span 
-                style={{ 
-                  fontWeight: 500,
-                  color: backtestResult.totalReturn >= 0 ? '#ff4d4f' : '#52c41a'
-                }}
-              >
-                {backtestResult.totalReturn >= 0 ? '+' : ''}
-                {formatPercent(backtestResult.totalReturn)}
-              </span>
-            </div>
-            
-            <div className="list-item">
-              <span>年化收益率</span>
-              <span style={{ fontWeight: 500 }}>
-                {backtestResult.annualizedReturn >= 0 ? '+' : ''}
-                {formatPercent(backtestResult.annualizedReturn)}
-              </span>
-            </div>
-            
-            <div className="list-item">
-              <span>最大回撤</span>
-              <span style={{ fontWeight: 500, color: '#ff4d4f' }}>
-                {formatPercent(backtestResult.maxDrawdown)}
-              </span>
-            </div>
-            
-            <div className="list-item">
-              <span>夏普比率</span>
-              <span style={{ fontWeight: 500 }}>{backtestResult.sharpeRatio.toFixed(2)}</span>
-            </div>
-            
-            <div className="list-item">
-              <span>交易次数</span>
-              <span style={{ fontWeight: 500 }}>{backtestResult.trades} 次</span>
-            </div>
+            {[
+              { label: '初始资金', value: formatMoney(backtestResult.initialCapital) },
+              { label: '最终资产', value: formatMoney(backtestResult.finalValue) },
+              { 
+                label: '总收益率', 
+                value: `${backtestResult.totalReturn >= 0 ? '+' : ''}${formatPercent(backtestResult.totalReturn)}`,
+                color: backtestResult.totalReturn >= 0 ? '#ff4d4f' : '#52c41a'
+              },
+              { 
+                label: '年化收益率', 
+                value: `${backtestResult.annualizedReturn >= 0 ? '+' : ''}${formatPercent(backtestResult.annualizedReturn)}` 
+              },
+              { label: '最大回撤', value: formatPercent(backtestResult.maxDrawdown), color: '#ff4d4f' },
+              { label: '夏普比率', value: backtestResult.sharpeRatio.toFixed(2) },
+              { label: '交易次数', value: `${backtestResult.trades} 次` },
+            ].map((item, index) => (
+              <div key={index} className="list-item">
+                <span>{item.label}</span>
+                <span style={{ fontWeight: 500, color: item.color }}>{item.value}</span>
+              </div>
+            ))}
           </div>
         </Card>
       )}
+
+      {/* 创建策略对话框 */}
+      <Dialog
+        visible={showCreateDialog}
+        title="创建自定义策略"
+        content={
+          <div>
+            <Form
+              form={createForm}
+              layout="vertical"
+            >
+              <Form.Item
+                name="name"
+                label="策略名称"
+                rules={[{ required: true, message: '请输入策略名称' }]}
+              >
+                <Input placeholder="如: 我的定投策略" />
+              </Form.Item>
+
+              <Form.Item
+                name="description"
+                label="策略描述"
+              >
+                <Input placeholder="描述策略的核心逻辑" />
+              </Form.Item>
+            </Form>
+
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontWeight: 500 }}>策略规则 ({customRules.length})</span>
+                <Button 
+                  size="small" 
+                  color="primary"
+                  onClick={() => setShowAddRuleDialog(true)}
+                >
+                  添加规则
+                </Button>
+              </div>
+
+              {customRules.length > 0 ? (
+                <List>
+                  {customRules.map((rule, index) => (
+                    <SwipeAction
+                      key={index}
+                      rightActions={[
+                        {
+                          key: 'delete',
+                          text: '删除',
+                          color: 'danger',
+                          onClick: () => handleDeleteRule(index),
+                        },
+                      ]}
+                    >
+                      <List.Item
+                        title={`规则 ${index + 1}`}
+                        description={`${rule.condition} → ${getActionText(rule.action)}`}
+                      />
+                    </SwipeAction>
+                  ))}
+                </List>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                  点击"添加规则"创建策略规则
+                </div>
+              )}
+            </div>
+          </div>
+        }
+        actions={[
+          [
+            {
+              key: 'cancel',
+              text: '取消',
+              onClick: () => {
+                setShowCreateDialog(false);
+                setCustomRules([]);
+                createForm.resetFields();
+              },
+            },
+            {
+              key: 'confirm',
+              text: '创建',
+              bold: true,
+              onClick: () => createForm.submit().then(() => handleCreateStrategy(createForm.getFieldsValue())),
+            },
+          ],
+        ]}
+      />
+
+      {/* 添加规则对话框 */}
+      <Dialog
+        visible={showAddRuleDialog}
+        title="添加规则"
+        content={
+          <Form
+            form={ruleForm}
+            layout="vertical"
+            onFinish={handleAddRule}
+          >
+            <Form.Item
+              name="condition"
+              label="触发条件"
+              rules={[{ required: true, message: '请输入触发条件' }]}
+            >
+              <Input placeholder="如: 价格下跌5%" />
+            </Form.Item>
+
+            <Form.Item
+              name="action"
+              label="执行动作"
+              rules={[{ required: true }]}
+              initialValue="buy"
+            >
+              <div>
+                {[
+                  { value: 'buy', label: '买入' },
+                  { value: 'sell', label: '卖出' },
+                  { value: 'hold', label: '持有' },
+                ].map(opt => (
+                  <Button
+                    key={opt.value}
+                    size="small"
+                    style={{ marginRight: 8, marginBottom: 8 }}
+                    color={ruleForm.getFieldValue('action') === opt.value ? 'primary' : 'default'}
+                    onClick={() => ruleForm.setFieldsValue({ action: opt.value })}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+            </Form.Item>
+
+            <Form.Item
+              name="ratio"
+              label="比例/金额"
+              rules={[{ required: true, message: '请输入比例' }]}
+              initialValue={1.0}
+            >
+              <Input type="number" placeholder="如: 1.0 表示100%" />
+            </Form.Item>
+          </Form>
+        }
+        actions={[
+          [
+            {
+              key: 'cancel',
+              text: '取消',
+              onClick: () => setShowAddRuleDialog(false),
+            },
+            {
+              key: 'confirm',
+              text: '添加',
+              bold: true,
+              onClick: () => ruleForm.submit(),
+            },
+          ],
+        ]}
+      />
 
       {/* 回测设置对话框 */}
       <Dialog
