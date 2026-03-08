@@ -224,7 +224,7 @@ const Settings: React.FC = () => {
               title={
                 <Space>
                   {task.name}
-                  {task.enabled && <Tag color="success" size="mini">已启用</Tag>}
+                  {task.enabled && <Tag color="success">已启用</Tag>}
                 </Space>
               }
               description={
@@ -280,10 +280,10 @@ const Settings: React.FC = () => {
                 title="通知设置"
                 description={
                   <Space wrap>
-                    {feishuConfig.notifyOn.dailyReport && <Tag size="mini">日报</Tag>}
-                    {feishuConfig.notifyOn.weeklyReport && <Tag size="mini">周报</Tag>}
-                    {feishuConfig.notifyOn.largeFluctuation && <Tag size="mini">波动提醒</Tag>}
-                    {feishuConfig.notifyOn.transactionAdded && <Tag size="mini">交易提醒</Tag>}
+                    {feishuConfig.notifyOn.dailyReport && <Tag>日报</Tag>}
+                    {feishuConfig.notifyOn.weeklyReport && <Tag>周报</Tag>}
+                    {feishuConfig.notifyOn.largeFluctuation && <Tag>波动提醒</Tag>}
+                    {feishuConfig.notifyOn.transactionAdded && <Tag>交易提醒</Tag>}
                   </Space>
                 }
               />

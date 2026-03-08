@@ -47,11 +47,11 @@ export function useSyncStatus() {
   }, []);
 
   const triggerSync = useCallback(async () => {
-    return syncToCloud();
+    await syncToCloud();
   }, []);
 
   const triggerFullSync = useCallback(async () => {
-    return forceFullSync();
+    await forceFullSync();
   }, []);
 
   return {
