@@ -20,7 +20,7 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
       return cached.data;
     }
 
-    // 通过代理从东方财富获取
+    // 通过代理从东方财富获取（开发环境）
     const data = await fetchFromEastMoney(fundCode);
     if (data) {
       navCache.set(fundCode, { data, timestamp: Date.now() });
@@ -39,8 +39,10 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
  */
 async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null> {
   try {
-    // 使用代理地址
-    const url = `/api/eastmoney/FundMNewApi/FundMNFInfo?plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=123456&FCode=${fundCode}`;
+    // 使用代理地址（仅开发环境有效）
+    const url = import.meta.env.DEV 
+      ? `/api/eastmoney/FundMNewApi/FundMNFInfo?plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=123456&FCode=${fundCode}`
+      : `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=123456&FCode=${fundCode}`;
     
     const response = await fetch(url);
 
@@ -81,36 +83,44 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
 
 // 缓存估值数据
 let valuationCache: { data: MarketValuationData; timestamp: number } | null = null;
-const VALUATION_CACHE_DURATION = 30 * 60 * 1000; // 30分钟缓存
+const VALUATION_CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存（数据每2小时更新一次）
 
 /**
  * 获取市场估值数据
- * 优先从且慢获取，失败返回带错误信息的数据
+ * 优先从本地JSON文件读取（由GitHub Actions定时更新）
  */
 export async function fetchMarketValuation(): Promise<MarketValuationData> {
   try {
-    // 检查缓存
+    // 检查内存缓存
     if (valuationCache && Date.now() - valuationCache.timestamp < VALUATION_CACHE_DURATION) {
       return valuationCache.data;
     }
 
-    // 从且慢获取真实数据
-    const data = await fetchFromQieman();
+    // 从本地JSON文件读取（GitHub Pages部署的数据）
+    const data = await fetchFromLocalJson();
     if (data) {
       valuationCache = { data, timestamp: Date.now() };
       return data;
     }
 
-    // 获取失败，返回默认值并标记错误
+    // 本地文件读取失败，尝试直接API（开发环境）
+    if (import.meta.env.DEV) {
+      const apiData = await fetchFromQieman();
+      if (apiData) {
+        valuationCache = { data: apiData, timestamp: Date.now() };
+        return apiData;
+      }
+    }
+
     throw new Error('无法获取估值数据');
   } catch (error) {
     console.error('获取市场估值失败:', error);
-    // 返回默认值，带有错误标记
+    // 返回默认值并标记错误
     return {
       date: new Date().toISOString().split('T')[0],
-      pe: 16.0,  // 沪深300长期平均PE
-      pb: 1.4,   // 沪深300长期平均PB
-      percentile: 0.30, // 假设30%百分位
+      pe: 16.0,
+      pb: 1.4,
+      percentile: 0.30,
       temperature: 30,
       source: 'error',
       error: error instanceof Error ? error.message : '数据获取失败',
@@ -119,12 +129,49 @@ export async function fetchMarketValuation(): Promise<MarketValuationData> {
 }
 
 /**
- * 从且慢API获取估值数据（通过代理）
+ * 从本地JSON文件读取估值数据
+ * GitHub Actions每2小时自动更新此文件
+ */
+async function fetchFromLocalJson(): Promise<MarketValuationData | null> {
+  try {
+    // GitHub Pages 路径
+    const basePath = import.meta.env.BASE_URL || '/MyFundSys/';
+    const response = await fetch(`${basePath}valuation.json?v=${Date.now()}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data && data.pe && data.pb) {
+      return {
+        date: data.date || new Date().toISOString().split('T')[0],
+        pe: Number(data.pe),
+        pb: Number(data.pb),
+        percentile: Number(data.percentile || 0.30),
+        temperature: Number(data.temperature || 30),
+        source: data.source || 'json',
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('读取本地估值文件失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 从且慢API获取估值数据（开发环境使用）
  */
 async function fetchFromQieman(): Promise<MarketValuationData | null> {
   try {
-    // 使用代理地址
-    const response = await fetch('/api/qieman/api/v1/idx-eval/latest');
+    const url = import.meta.env.DEV 
+      ? '/api/qieman/api/v1/idx-eval/latest'
+      : 'https://qieman.com/api/v1/idx-eval/latest';
+    
+    const response = await fetch(url);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -133,7 +180,6 @@ async function fetchFromQieman(): Promise<MarketValuationData | null> {
     const result = await response.json();
     
     if (result && result.data && Array.isArray(result.data)) {
-      // 找到沪深300指数
       const hs300 = result.data.find((item: any) => 
         item.name?.includes('沪深300') || item.code === '000300'
       );
@@ -180,7 +226,6 @@ function getFundNameByCode(code: string): string {
 export async function fetchMultipleFundsNav(fundCodes: string[]): Promise<FundApiData[]> {
   const results: FundApiData[] = [];
   
-  // 并发请求，但限制并发数
   const batchSize = 5;
   for (let i = 0; i < fundCodes.length; i += batchSize) {
     const batch = fundCodes.slice(i, i + batchSize);
@@ -192,7 +237,6 @@ export async function fetchMultipleFundsNav(fundCodes: string[]): Promise<FundAp
       if (data) results.push(data);
     });
     
-    // 添加小延迟避免请求过快
     if (i + batchSize < fundCodes.length) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
