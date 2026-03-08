@@ -44,7 +44,7 @@ export async function saveFeishuConfig(config: Omit<FeishuConfig, 'id' | 'create
 
 // ============================================
 // 签名生成（用于安全验证）
- * ============================================
+// ============================================
 
 async function generateSignature(secret: string, timestamp: number): Promise<string> {
   const encoder = new TextEncoder();
