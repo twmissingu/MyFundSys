@@ -37,7 +37,7 @@ const FundList: React.FC = () => {
       
       for (const fund of cachedFunds) {
         const shouldBeHolding = holdingCodes.has(fund.code);
-        if (fund.isHolding !== (shouldBeHolding ? 1 : 0)) {
+        if (fund.isHolding !== shouldBeHolding) {
           await markFundAsHolding(fund.code, shouldBeHolding);
         }
       }

@@ -320,7 +320,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="macd" name="MACD">
                     {displayData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.macd >= 0 ? '#ff4d4f' : '#52c41a'} />
+                      <Cell key={`cell-${index}`} fill={(entry.macd ?? 0) >= 0 ? '#ff4d4f' : '#52c41a'} />
                     ))}
                   </Bar>
                   <Line

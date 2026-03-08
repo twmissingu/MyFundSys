@@ -1,4 +1,4 @@
-import type { FundApiData, MarketValuationData, FundSearchResult } from '../types';
+import type { FundApiData, MarketValuationData, FundSearchResult as FundSearchResultType } from '../types';
 import type { FundCacheItem } from '../db';
 import { db } from '../db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -370,10 +370,8 @@ export async function getCachedFunds(): Promise<FundCacheItem[]> {
 
 export async function getHoldingFunds(): Promise<FundCacheItem[]> {
   try {
-    return await db.fundCache
-      .where('isHolding')
-      .equals(1)
-      .toArray();
+    const all = await db.fundCache.toArray();
+    return all.filter(fund => fund.isHolding === true);
   } catch (error) {
     console.error('获取持仓基金失败:', error);
     return [];
@@ -429,7 +427,7 @@ export async function markFundAsHolding(code: string, isHolding: boolean): Promi
     const fund = await db.fundCache.where('code').equals(code).first();
     if (fund) {
       await db.fundCache.update(fund.id, {
-        isHolding: isHolding ? 1 : 0,
+        isHolding: isHolding,
         updatedAt: new Date().toISOString(),
       });
     }
