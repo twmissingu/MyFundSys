@@ -41,13 +41,30 @@ const Dashboard: React.FC = () => {
       <h1 className="page-title">MyFundSys</h1>
 
       {/* 市场估值卡片 */}
-      {valuationStatus && (
-        <div className={`valuation-indicator ${valuationStatus.text === '钻石坑' ? 'diamond' : valuationStatus.text === '危险' ? 'danger' : 'normal'}`}>
+      {valuation && (
+        <div className={`valuation-indicator ${valuationStatus?.text === '钻石坑' ? 'diamond' : valuationStatus?.text === '危险' ? 'danger' : 'normal'}`}>
           <div>
-            <div className="valuation-title">市场估值: {valuationStatus.text}</div>
-            <div className="valuation-desc">
-              PE: {valuation?.pe.toFixed(2)} | PB: {valuation?.pb.toFixed(2)} | 百分位: {formatPercent(valuation?.percentile || 0)}
+            <div className="valuation-title">
+              {valuation.error ? (
+                <>
+                  市场估值: 数据获取失败
+                  <span style={{ fontSize: 11, marginLeft: 8, color: '#ff4d4f' }}>(默认)</span>
+                </>
+              ) : (
+                <>市场估值: {valuationStatus?.text}</>
+              )}
+              {!valuation.error && valuation.source === 'qieman' && (
+                <span style={{ fontSize: 11, marginLeft: 8, opacity: 0.7 }}>(且慢)</span>
+              )}
             </div>
+            <div className="valuation-desc">
+              PE: {valuation.pe.toFixed(2)} | PB: {valuation.pb.toFixed(2)} | 百分位: {formatPercent(valuation.percentile)}
+            </div>
+            {valuation.error && (
+              <div style={{ fontSize: 11, color: '#ff4d4f', marginTop: 4 }}>
+                ⚠️ {valuation.error}，显示默认值仅供参考
+              </div>
+            )}
           </div>
         </div>
       )}

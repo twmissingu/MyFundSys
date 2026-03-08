@@ -130,4 +130,6 @@ export interface MarketValuationData {
   pb: number;
   percentile: number;
   temperature: number;  // 市场温度 0-100
+  source?: string;      // 数据来源：'qieman' | 'error'
+  error?: string;       // 错误信息（获取失败时）
 }

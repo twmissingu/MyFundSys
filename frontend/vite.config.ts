@@ -22,5 +22,26 @@ export default defineConfig({
   },
   esbuild: {
     logOverride: { 'this-is-undefined-in-esm': 'silent' }
+  },
+  server: {
+    proxy: {
+      // 且慢估值API代理
+      '/api/qieman': {
+        target: 'https://qieman.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/qieman/, ''),
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            proxyReq.setHeader('Origin', 'https://qieman.com')
+          })
+        }
+      },
+      // 东方财富基金API代理
+      '/api/eastmoney': {
+        target: 'https://fundmobapi.eastmoney.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/eastmoney/, ''),
+      },
+    }
   }
 })
