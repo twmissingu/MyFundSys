@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, List, Button, Toast, Dialog, Tag, Switch, Input, Space } from 'antd-mobile';
-import { CheckCircleOutline, ClockCircleOutline, MessageOutline, SyncOutline } from 'antd-mobile-icons';
+import { CheckCircleOutline, ClockCircleOutline, MessageOutline, SendOutline } from 'antd-mobile-icons';
 import { exportDatabase, importDatabase, initDefaultTasks } from '../db';
 import { useSyncStatus, useHoldings, useTransactions } from '../hooks/useSync';
 import { getScheduledTasks, toggleTask, runTaskManually, PRESET_SCHEDULES } from '../services/schedulerService';
@@ -155,7 +155,7 @@ const Settings: React.FC = () => {
         <Card 
           title={
             <Space>
-              <SyncOutline />
+              <SendOutline />
               <span>数据同步</span>
             </Space>
           }
@@ -187,16 +187,16 @@ const Settings: React.FC = () => {
 
           <Space>
             <Button 
-              size="small" 
+              size="mini" 
               color="primary"
               loading={syncStatus.isSyncing}
-              onClick={syncStatus.triggerSync}
+              onClick={() => syncStatus.triggerSync()}
             >
               立即同步
             </Button>
             <Button 
-              size="small" 
-              onClick={syncStatus.triggerFullSync}
+              size="mini" 
+              onClick={() => syncStatus.triggerFullSync()}
             >
               强制全量同步
             </Button>
@@ -224,7 +224,7 @@ const Settings: React.FC = () => {
               title={
                 <Space>
                   {task.name}
-                  {task.enabled && <Tag color="success" size="small">已启用</Tag>}
+                  {task.enabled && <Tag color="success" size="mini">已启用</Tag>}
                 </Space>
               }
               description={
@@ -280,20 +280,20 @@ const Settings: React.FC = () => {
                 title="通知设置"
                 description={
                   <Space wrap>
-                    {feishuConfig.notifyOn.dailyReport && <Tag size="small">日报</Tag>}
-                    {feishuConfig.notifyOn.weeklyReport && <Tag size="small">周报</Tag>}
-                    {feishuConfig.notifyOn.largeFluctuation && <Tag size="small">波动提醒</Tag>}
-                    {feishuConfig.notifyOn.transactionAdded && <Tag size="small">交易提醒</Tag>}
+                    {feishuConfig.notifyOn.dailyReport && <Tag size="mini">日报</Tag>}
+                    {feishuConfig.notifyOn.weeklyReport && <Tag size="mini">周报</Tag>}
+                    {feishuConfig.notifyOn.largeFluctuation && <Tag size="mini">波动提醒</Tag>}
+                    {feishuConfig.notifyOn.transactionAdded && <Tag size="mini">交易提醒</Tag>}
                   </Space>
                 }
               />
             </List>
             <Space style={{ marginTop: 12 }}>
-              <Button size="small" onClick={() => setEditingFeishu(true)}>
+              <Button size="mini" onClick={() => setEditingFeishu(true)}>
                 编辑配置
               </Button>
               <Button 
-                size="small" 
+                size="mini" 
                 color="primary"
                 loading={testingWebhook}
                 onClick={handleTestWebhook}
@@ -320,7 +320,7 @@ const Settings: React.FC = () => {
             onClick={handleExport}
             arrow={false}
           >
-            <Button size="small" color="primary" loading={exporting}>
+            <Button size="mini" color="primary" loading={exporting}>
               导出
             </Button>
           </List.Item>
@@ -337,7 +337,7 @@ const Settings: React.FC = () => {
                 onChange={handleImport}
                 style={{ display: 'none' }}
               />
-              <Button size="small" color="primary" loading={importing}>
+              <Button size="mini" color="primary" loading={importing}>
                 导入
               </Button>
             </label>
@@ -353,7 +353,7 @@ const Settings: React.FC = () => {
             onClick={() => exportHoldingsToCSV(holdings)}
             arrow={false}
           >
-            <Button size="small" color="primary">
+            <Button size="mini" color="primary">
               导出
             </Button>
           </List.Item>
@@ -364,7 +364,7 @@ const Settings: React.FC = () => {
             onClick={() => exportTransactionsToCSV(transactions)}
             arrow={false}
           >
-            <Button size="small" color="primary">
+            <Button size="mini" color="primary">
               导出
             </Button>
           </List.Item>
@@ -481,8 +481,8 @@ const FeishuConfigForm: React.FC<FeishuConfigFormProps> = ({ initialConfig, onSa
       </div>
 
       <Space>
-        <Button size="small" onClick={onCancel}>取消</Button>
-        <Button size="small" color="primary" onClick={handleSave}>保存</Button>
+        <Button size="mini" onClick={onCancel}>取消</Button>
+        <Button size="mini" color="primary" onClick={handleSave}>保存</Button>
       </Space>
     </div>
   );

@@ -144,7 +144,7 @@ export async function saveHolding(holding: Omit<Holding, 'createdAt' | 'updatedA
     table: 'holdings',
     action: holding.id ? 'update' : 'insert',
     data: holdingWithTime,
-    synced: false,
+    synced: 0,
     createdAt: now,
   });
 
@@ -168,7 +168,7 @@ export async function removeHolding(id: string) {
     table: 'holdings',
     action: 'delete',
     data: { id },
-    synced: false,
+    synced: 0,
     createdAt: new Date().toISOString(),
   });
 
@@ -207,7 +207,7 @@ export async function saveTransaction(transaction: Omit<Transaction, 'id' | 'cre
     table: 'transactions',
     action: 'insert',
     data: transactionWithId,
-    synced: false,
+    synced: 0,
     createdAt: now,
   });
 
@@ -233,7 +233,7 @@ export async function removeTransaction(id: string) {
     table: 'transactions',
     action: 'delete',
     data: { id },
-    synced: false,
+    synced: 0,
     createdAt: new Date().toISOString(),
   });
 
@@ -497,7 +497,7 @@ export async function forceFullSync(): Promise<boolean> {
       table: 'holdings',
       action: 'insert',
       data: h,
-      synced: false,
+      synced: 0,
       createdAt: new Date().toISOString(),
     });
   }
@@ -507,7 +507,7 @@ export async function forceFullSync(): Promise<boolean> {
       table: 'transactions',
       action: 'insert',
       data: t,
-      synced: false,
+      synced: 0,
       createdAt: new Date().toISOString(),
     });
   }
