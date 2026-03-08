@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Toast } from 'antd-mobile';
-import { useHoldings, useFunds } from '../hooks/useSync';
+import { useHoldings } from '../hooks/useSync';
 import { fetchMarketValuation } from '../services/fundApi';
 import { formatMoney, formatPercent, getValuationStatus } from '../utils';
 import type { MarketValuationData } from '../types';
@@ -8,7 +8,6 @@ import './Layout.css';
 
 const Dashboard: React.FC = () => {
   const { holdings } = useHoldings();
-  useFunds();
   const [valuation, setValuation] = useState<MarketValuationData | null>(null);
 
   useEffect(() => {

@@ -1,6 +1,36 @@
 import Dexie, { Table } from 'dexie';
 import type { Fund, Holding, Transaction, Article, Strategy, BacktestResult } from '../types';
 
+// 基金缓存条目
+export interface FundCacheItem {
+  id: string;
+  code: string;
+  name: string;
+  category?: string;
+  nav?: number;
+  navDate?: string;
+  dailyChangeRate?: number;  // 日涨跌幅
+  accNav?: number;           // 累计净值
+  pe?: number;
+  pb?: number;
+  dividendYield?: number;
+  source: 'search' | 'import' | 'system';
+  isHolding: boolean;
+  holdingShares: number;
+  searchCount: number;
+  lastUpdated: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 基金搜索历史
+export interface FundSearchHistory {
+  id?: number;
+  keyword: string;
+  resultsCount: number;
+  searchedAt: string;
+}
+
 // 同步队列条目
 export interface SyncQueueItem {
   id?: number;
@@ -51,12 +81,16 @@ export class FundDatabase extends Dexie {
   syncQueue!: Table<SyncQueueItem>;
   scheduledTasks!: Table<ScheduledTask>;
   feishuConfig!: Table<FeishuConfig>;
+  fundCache!: Table<FundCacheItem>;
+  fundSearchHistory!: Table<FundSearchHistory>;
 
   constructor() {
     super('FundDatabase');
-    this.version(3).stores({
+    this.version(4).stores({
       funds: 'id, code, name, category, updatedAt',
       holdings: 'id, fundId, fundCode, updatedAt',
+      fundCache: 'id, code, name, isHolding, searchCount, lastUpdated',
+      fundSearchHistory: '++id, keyword, searchedAt',
       transactions: 'id, fundId, fundCode, type, date, createdAt',
       articles: 'id, title, date, source, category',
       strategies: 'id, name, type, updatedAt',
@@ -69,123 +103,6 @@ export class FundDatabase extends Dexie {
 }
 
 export const db = new FundDatabase();
-
-// ============================================
-// 初始化基金数据 - 95只ETF基金
-// ============================================
-
-export async function initFundData(): Promise<void> {
-  const count = await db.funds.count();
-  if (count > 0) return;
-
-  const funds: Fund[] = [
-    // A股宽基指数
-    { id: 'f001', code: '510300', name: '沪深300ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f002', code: '510500', name: '中证500ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f003', code: '510050', name: '上证50ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f004', code: '159915', name: '创业板ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f005', code: '159901', name: '深证100ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f006', code: '510880', name: '红利ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f007', code: '512010', name: '医药ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f008', code: '512170', name: '医疗ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f009', code: '512480', name: '半导体ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f010', code: '515030', name: '新能源车ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f011', code: '515700', name: '光伏ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f012', code: '512660', name: '军工ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f013', code: '512000', name: '券商ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f014', code: '512800', name: '银行ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f015', code: '512200', name: '地产ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f016', code: '159928', name: '消费ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f017', code: '512690', name: '酒ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f018', code: '159995', name: '芯片ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f019', code: '515050', name: '5GETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f020', code: '512980', name: '传媒ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    // 港股
-    { id: 'f021', code: '510900', name: 'H股ETF', category: '港股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f022', code: '159920', name: '恒生ETF', category: '港股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f023', code: '513050', name: '中概互联网ETF', category: '港股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f024', code: '513130', name: '恒生科技ETF', category: '港股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f025', code: '513180', name: '恒生医疗ETF', category: '港股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    // 美股
-    { id: 'f026', code: '513100', name: '纳指ETF', category: '美股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f027', code: '513500', name: '标普500ETF', category: '美股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f028', code: '159941', name: '纳斯达克ETF', category: '美股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f029', code: '513300', name: '纳斯达克100ETF', category: '美股', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    // 商品
-    { id: 'f030', code: '518880', name: '黄金ETF', category: '商品', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f031', code: '159985', name: '豆粕ETF', category: '商品', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f032', code: '159981', name: '能源化工ETF', category: '商品', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    // 债券
-    { id: 'f033', code: '511010', name: '国债ETF', category: '债券', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f034', code: '511220', name: '城投债ETF', category: '债券', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f035', code: '511260', name: '十年国债ETF', category: '债券', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    // 更多A股宽基
-    { id: 'f036', code: '159949', name: '创业板50ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f037', code: '588000', name: '科创50ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f038', code: '512100', name: '中证1000ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f039', code: '159781', name: '双创50ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f040', code: '510180', name: '上证180ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    // 更多行业
-    { id: 'f041', code: '512070', name: '证券保险ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f042', code: '515210', name: '钢铁ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f043', code: '515220', name: '煤炭ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f044', code: '159870', name: '化工ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f045', code: '516970', name: '基建ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f046', code: '159766', name: '旅游ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f047', code: '515250', name: '智能汽车ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f048', code: '515400', name: '人工智能ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f049', code: '159819', name: '人工智能ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f050', code: '516010', name: '游戏ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    // 补充到95只
-    { id: 'f051', code: '159825', name: '农业ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f052', code: '516110', name: '汽车ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f053', code: '515650', name: '消费50ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f054', code: '159996', name: '家电ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f055', code: '512720', name: '计算机ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f056', code: '515000', name: '科技ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f057', code: '159807', name: '科技50ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f058', code: '512580', name: '环保ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f059', code: '159611', name: '电力ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f060', code: '515880', name: '通信ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f061', code: '512330', name: '信息ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f062', code: '159939', name: '信息技术ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f063', code: '515290', name: '银行ETF天弘', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f064', code: '512640', name: '金融地产ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f065', code: '512910', name: '证券ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f066', code: '159848', name: '证券ETF基金', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f067', code: '512190', name: '沪深300红利ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f068', code: '515080', name: '中证红利ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f069', code: '510810', name: '上海国企ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f070', code: '510110', name: '周期ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f071', code: '510160', name: '产业升级ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f072', code: '510230', name: '金融ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f073', code: '510260', name: '新兴ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f074', code: '510280', name: '成长ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f075', code: '510440', name: '500沪市ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f076', code: '512220', name: '小盘价值ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f077', code: '512240', name: '景顺500ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f078', code: '512400', name: '有色金属ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f079', code: '512500', name: '中证500ETF华夏', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f080', code: '512510', name: 'ETF500', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f081', code: '512520', name: '沪深300ETF华夏', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f082', code: '512530', name: '沪深300ETF博时', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f083', code: '512560', name: '中证军工ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f084', code: '512590', name: '高股息ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f085', code: '512610', name: '医药卫生ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f086', code: '512770', name: '战略新兴ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f087', code: '512780', name: '京津冀ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f088', code: '512820', name: '银行ETF鹏华', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f089', code: '512850', name: '证券龙头ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f090', code: '512860', name: '华安A股ETF', category: 'A股宽基', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f091', code: '512870', name: '杭州湾区ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f092', code: '512880', name: '证券ETF基金', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f093', code: '512900', name: '证券ETF南方', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f094', code: '512950', name: '央企ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'f095', code: '159992', name: '创新药ETF', category: 'A股行业', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  ];
-
-  await db.funds.bulkAdd(funds);
-}
 
 // ============================================
 // 初始化策略数据

@@ -1,4 +1,16 @@
-import type { FundApiData, MarketValuationData } from '../types';
+import type { FundApiData, MarketValuationData, FundSearchResult } from '../types';
+import type { FundCacheItem } from '../db';
+import { db } from '../db';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
+// ============================================
+// 配置
+// ============================================
+
+// API基础URL
+const API_BASE = import.meta.env.DEV 
+  ? 'http://localhost:3001'  // 开发环境使用代理服务器
+  : '';  // 生产环境使用相对路径
 
 // ============================================
 // 基金净值 API 服务
@@ -20,7 +32,7 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
       return cached.data;
     }
 
-    // 通过代理从东方财富获取（开发环境）
+    // 从API获取
     const data = await fetchFromEastMoney(fundCode);
     if (data) {
       navCache.set(fundCode, { data, timestamp: Date.now() });
@@ -35,15 +47,15 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
 }
 
 /**
- * 从东方财富网获取基金净值（通过代理）
+ * 从东方财富网获取基金净值
+ * 使用正确的 API 格式：Fcodes 参数支持批量查询
  */
 async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null> {
   try {
-    // 使用代理地址（仅开发环境有效）
-    const url = import.meta.env.DEV 
-      ? `/api/eastmoney/FundMNewApi/FundMNFInfo?plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=123456&FCode=${fundCode}`
-      : `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=123456&FCode=${fundCode}`;
+    // 正确的东方财富API格式：使用 Fcodes 参数（支持批量查询）
+    const url = `${API_BASE}/api/eastmoney/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`;
     
+    console.log('[API] Fetching:', url);
     const response = await fetch(url);
 
     if (!response.ok) {
@@ -52,70 +64,92 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
 
     const result = await response.json();
     
-    if (result.ErrCode !== 0 || !result.Datas) {
-      throw new Error(result.ErrMsg || 'API返回错误');
+    if (result.ErrCode !== 0 || !result.Datas || result.Datas.length === 0) {
+      throw new Error(result.ErrMsg || 'API返回错误或无数据');
     }
 
-    const data = result.Datas;
+    // 返回的是数组，取第一个
+    const data = result.Datas[0];
     
-    // 解析涨跌幅
-    const dailyChangeRate = parseFloat(data.RZDF || '0');
+    // 解析涨跌幅 - 使用 NAVCHGRT（日涨跌幅）
+    const dailyChangeRate = parseFloat(data.NAVCHGRT || '0');
     const nav = parseFloat(data.NAV || '0');
     const dailyChange = nav * dailyChangeRate / 100;
+    
+    // 解析扩展字段
+    const accNav = data.ACCNAV ? parseFloat(data.ACCNAV) : undefined;
+    const newPrice = data.NEWPRICE ? parseFloat(data.NEWPRICE) : undefined;
+    const priceChangeRate = data.CHANGERATIO ? parseFloat(data.CHANGERATIO) : undefined;
+    const fundFlow = data.ZJL ? parseFloat(data.ZJL) : undefined;
+    const marketTime = data.HQDATE || undefined;
 
     return {
       code: fundCode,
       name: data.SHORTNAME || getFundNameByCode(fundCode),
       nav: Number(nav.toFixed(4)),
-      navDate: data.NAVDATE || new Date().toISOString().split('T')[0],
+      accNav: accNav ? Number(accNav.toFixed(4)) : undefined,
+      navDate: data.PDATE || data.NAVDATE || new Date().toISOString().split('T')[0],
       dailyChange: Number(dailyChange.toFixed(4)),
       dailyChangeRate: Number(dailyChangeRate.toFixed(2)),
+      // 扩展字段
+      newPrice,
+      priceChangeRate: priceChangeRate ? Number(priceChangeRate.toFixed(2)) : undefined,
+      fundFlow: fundFlow ? Number(fundFlow.toFixed(2)) : undefined,
+      marketTime,
     };
   } catch (error) {
-    console.error(`东方财富API获取失败 ${fundCode}:`, error);
+    console.error(`[API] 东方财富API获取失败 ${fundCode}:`, error);
+    
+    // 开发环境下代理服务器未启动时使用模拟数据
+    if (import.meta.env.DEV) {
+      console.log(`[DEV] 使用模拟数据: ${fundCode}`);
+      return generateMockFundData(fundCode);
+    }
+    
     return null;
   }
+}
+
+/**
+ * 生成模拟基金数据
+ */
+function generateMockFundData(fundCode: string): FundApiData {
+  const baseNav = 1.5 + Math.random() * 2;
+  const dailyChangeRate = (Math.random() - 0.5) * 4;
+  const dailyChange = baseNav * dailyChangeRate / 100;
+  
+  return {
+    code: fundCode,
+    name: getFundNameByCode(fundCode),
+    nav: Number((baseNav + dailyChange).toFixed(4)),
+    navDate: new Date().toISOString().split('T')[0],
+    dailyChange: Number(dailyChange.toFixed(4)),
+    dailyChangeRate: Number(dailyChangeRate.toFixed(2)),
+  };
 }
 
 // ============================================
 // 市场估值数据
 // ============================================
 
-// 缓存估值数据
 let valuationCache: { data: MarketValuationData; timestamp: number } | null = null;
-const VALUATION_CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存（数据每2小时更新一次）
+const VALUATION_CACHE_DURATION = 5 * 60 * 1000;
 
-/**
- * 获取市场估值数据
- * 优先从本地JSON文件读取（由GitHub Actions定时更新）
- */
 export async function fetchMarketValuation(): Promise<MarketValuationData> {
   try {
-    // 检查内存缓存
     if (valuationCache && Date.now() - valuationCache.timestamp < VALUATION_CACHE_DURATION) {
       return valuationCache.data;
     }
 
-    // 从本地JSON文件读取（GitHub Pages部署的数据）
     const data = await fetchFromLocalJson();
     if (data) {
       valuationCache = { data, timestamp: Date.now() };
       return data;
     }
 
-    // 本地文件读取失败，尝试直接API（开发环境）
-    if (import.meta.env.DEV) {
-      const apiData = await fetchFromQieman();
-      if (apiData) {
-        valuationCache = { data: apiData, timestamp: Date.now() };
-        return apiData;
-      }
-    }
-
     throw new Error('无法获取估值数据');
   } catch (error) {
     console.error('获取市场估值失败:', error);
-    // 返回默认值并标记错误
     return {
       date: new Date().toISOString().split('T')[0],
       pe: 16.0,
@@ -128,13 +162,8 @@ export async function fetchMarketValuation(): Promise<MarketValuationData> {
   }
 }
 
-/**
- * 从本地JSON文件读取估值数据
- * GitHub Actions每2小时自动更新此文件
- */
 async function fetchFromLocalJson(): Promise<MarketValuationData | null> {
   try {
-    // GitHub Pages 路径
     const basePath = import.meta.env.BASE_URL || '/MyFundSys/';
     const response = await fetch(`${basePath}valuation.json?v=${Date.now()}`);
     
@@ -162,67 +191,258 @@ async function fetchFromLocalJson(): Promise<MarketValuationData | null> {
   }
 }
 
-/**
- * 从且慢API获取估值数据（开发环境使用）
- */
-async function fetchFromQieman(): Promise<MarketValuationData | null> {
+// ============================================
+// 基金搜索和缓存功能
+// ============================================
+
+export interface FundSearchResult {
+  code: string;
+  name: string;
+  type?: string;
+  nav?: number;
+  navDate?: string;
+}
+
+export async function searchFunds(keyword: string): Promise<FundSearchResult[]> {
+  if (!keyword || keyword.trim().length < 2) {
+    return [];
+  }
+  
+  const trimmedKeyword = keyword.trim();
+  
   try {
-    const url = import.meta.env.DEV 
-      ? '/api/qieman/api/v1/idx-eval/latest'
-      : 'https://qieman.com/api/v1/idx-eval/latest';
+    // 1. 先从本地缓存搜索
+    const localResults = await searchLocalFunds(trimmedKeyword);
     
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    if (result && result.data && Array.isArray(result.data)) {
-      const hs300 = result.data.find((item: any) => 
-        item.name?.includes('沪深300') || item.code === '000300'
-      );
-      
-      if (hs300) {
-        return {
-          date: new Date().toISOString().split('T')[0],
-          pe: Number((hs300.pe || hs300.peRatio || 0).toFixed(2)),
-          pb: Number((hs300.pb || hs300.pbRatio || 0).toFixed(2)),
-          percentile: Number(((hs300.percentile || hs300.pePercentile || 30) / 100).toFixed(4)),
-          temperature: Math.round(hs300.temperature || hs300.score || 30),
-          source: 'qieman',
-        };
-      }
+    // 2. 如果本地有结果，直接返回
+    if (localResults.length > 0) {
+      await updateSearchCount(localResults.map(r => r.code));
+      return localResults;
     }
     
-    return null;
+    // 3. 本地没有，从东方财富API搜索
+    const apiResults = await searchFromEastMoney(trimmedKeyword);
+    
+    // 4. 保存到本地缓存
+    if (apiResults.length > 0) {
+      await saveFundCache(apiResults);
+      await saveSearchHistory(trimmedKeyword, apiResults.length);
+    }
+    
+    return apiResults;
   } catch (error) {
-    console.error('且慢API获取失败:', error);
-    return null;
+    console.error('搜索基金失败:', error);
+    return [];
   }
 }
 
-// 获取基金名称
-function getFundNameByCode(code: string): string {
-  const names: Record<string, string> = {
-    '510300': '沪深300ETF', '510500': '中证500ETF', '510050': '上证50ETF',
-    '159915': '创业板ETF', '159901': '深证100ETF', '510880': '红利ETF',
-    '512010': '医药ETF', '512170': '医疗ETF', '512480': '半导体ETF',
-    '515030': '新能源车ETF', '515700': '光伏ETF', '512660': '军工ETF',
-    '512000': '券商ETF', '512800': '银行ETF', '512200': '地产ETF',
-    '159928': '消费ETF', '512690': '酒ETF', '159995': '芯片ETF',
-    '515050': '5GETF', '512980': '传媒ETF', '510900': 'H股ETF',
-    '159920': '恒生ETF', '513050': '中概互联网ETF', '513130': '恒生科技ETF',
-    '513180': '恒生医疗ETF', '513100': '纳指ETF', '513500': '标普500ETF',
-    '159941': '纳斯达克ETF', '513300': '纳斯达克100ETF', '518880': '黄金ETF',
-    '159985': '豆粕ETF', '159981': '能源化工ETF', '511010': '国债ETF',
-    '511220': '城投债ETF', '511260': '十年国债ETF',
-  };
-  return names[code] || `基金${code}`;
+async function searchLocalFunds(keyword: string): Promise<FundSearchResult[]> {
+  try {
+    const allFunds = await db.fundCache.toArray();
+    const lowerKeyword = keyword.toLowerCase();
+    
+    return allFunds
+      .filter(fund => 
+        fund.code.toLowerCase().includes(lowerKeyword) ||
+        fund.name.toLowerCase().includes(lowerKeyword)
+      )
+      .sort((a, b) => b.searchCount - a.searchCount)
+      .slice(0, 10)
+      .map(fund => ({
+        code: fund.code,
+        name: fund.name,
+        type: fund.category,
+        nav: fund.nav,
+        navDate: fund.navDate,
+      }));
+  } catch (error) {
+    console.error('本地搜索失败:', error);
+    return [];
+  }
 }
 
-// 批量获取基金净值
+async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
+  try {
+    const url = `${API_BASE}/api/suggest/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=10`;
+    
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result && result.QuotationCodeTable && result.QuotationCodeTable.Data) {
+      const data = result.QuotationCodeTable.Data;
+      
+      return data
+        .filter((item: any) => item.Code && item.Name)
+        .map((item: any) => ({
+          code: item.Code,
+          name: item.Name,
+          type: item.Classes || 'ETF',
+        }));
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('[API] 东方财富搜索失败:', error);
+    return [];
+  }
+}
+
+async function saveFundCache(funds: FundSearchResult[]): Promise<void> {
+  try {
+    const now = new Date().toISOString();
+    
+    for (const fund of funds) {
+      const existing = await db.fundCache.where('code').equals(fund.code).first();
+      
+      if (existing) {
+        await db.fundCache.update(existing.id, {
+          searchCount: existing.searchCount + 1,
+          lastUpdated: now,
+        });
+      } else {
+        await db.fundCache.add({
+          id: `fc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          code: fund.code,
+          name: fund.name,
+          category: fund.type,
+          nav: fund.nav,
+          navDate: fund.navDate,
+          source: 'search',
+          isHolding: false,
+          holdingShares: 0,
+          searchCount: 1,
+          lastUpdated: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('保存基金缓存失败:', error);
+  }
+}
+
+async function saveSearchHistory(keyword: string, resultsCount: number): Promise<void> {
+  try {
+    await db.fundSearchHistory.add({
+      keyword,
+      resultsCount,
+      searchedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('保存搜索历史失败:', error);
+  }
+}
+
+async function updateSearchCount(codes: string[]): Promise<void> {
+  try {
+    const now = new Date().toISOString();
+    
+    for (const code of codes) {
+      const fund = await db.fundCache.where('code').equals(code).first();
+      if (fund) {
+        await db.fundCache.update(fund.id, {
+          searchCount: fund.searchCount + 1,
+          lastUpdated: now,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('更新搜索次数失败:', error);
+  }
+}
+
+export async function getCachedFunds(): Promise<FundCacheItem[]> {
+  try {
+    return await db.fundCache
+      .orderBy('searchCount')
+      .reverse()
+      .toArray();
+  } catch (error) {
+    console.error('获取缓存基金失败:', error);
+    return [];
+  }
+}
+
+export async function getHoldingFunds(): Promise<FundCacheItem[]> {
+  try {
+    return await db.fundCache
+      .where('isHolding')
+      .equals(1)
+      .toArray();
+  } catch (error) {
+    console.error('获取持仓基金失败:', error);
+    return [];
+  }
+}
+
+export async function batchRefreshFunds(codes: string[]): Promise<{
+  success: string[];
+  failed: string[];
+}> {
+  const success: string[] = [];
+  const failed: string[] = [];
+  
+  const batchSize = 5;
+  for (let i = 0; i < codes.length; i += batchSize) {
+    const batch = codes.slice(i, i + batchSize);
+    
+    await Promise.all(
+      batch.map(async (code) => {
+        try {
+          const data = await fetchFundNav(code);
+          if (data) {
+            const fund = await db.fundCache.where('code').equals(code).first();
+            if (fund) {
+              await db.fundCache.update(fund.id, {
+                nav: data.nav,
+                navDate: data.navDate,
+                dailyChangeRate: data.dailyChangeRate,
+                accNav: data.accNav,
+                lastUpdated: new Date().toISOString(),
+              });
+            }
+            success.push(code);
+          } else {
+            failed.push(code);
+          }
+        } catch (error) {
+          failed.push(code);
+        }
+      })
+    );
+    
+    if (i + batchSize < codes.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  
+  return { success, failed };
+}
+
+export async function markFundAsHolding(code: string, isHolding: boolean): Promise<void> {
+  try {
+    const fund = await db.fundCache.where('code').equals(code).first();
+    if (fund) {
+      await db.fundCache.update(fund.id, {
+        isHolding: isHolding ? 1 : 0,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error('标记持仓失败:', error);
+  }
+}
+
+// 获取基金名称（从API返回，不再需要预设映射）
+function getFundNameByCode(code: string): string {
+  return `基金${code}`;
+}
+
 export async function fetchMultipleFundsNav(fundCodes: string[]): Promise<FundApiData[]> {
   const results: FundApiData[] = [];
   
@@ -245,7 +465,69 @@ export async function fetchMultipleFundsNav(fundCodes: string[]): Promise<FundAp
   return results;
 }
 
-// 清空缓存
+// ============================================
+// 历史净值数据
+// ============================================
+
+export interface FundHistoryData {
+  date: string;        // 日期
+  nav: number;         // 单位净值
+  accNav: number;      // 累计净值
+  dailyChangeRate: number; // 日涨跌幅
+  buyStatus: string;   // 申购状态
+  sellStatus: string;  // 赎回状态
+}
+
+/**
+ * 获取基金历史净值
+ * @param fundCode 基金代码
+ * @param pageSize 获取条数（默认20）
+ * @param pageIndex 页码（从1开始）
+ */
+export async function fetchFundHistory(
+  fundCode: string, 
+  pageSize: number = 20,
+  pageIndex: number = 1
+): Promise<FundHistoryData[]> {
+  try {
+    const url = `${API_BASE}/api/history/f10/lsjz?fundCode=${fundCode}&pageIndex=${pageIndex}&pageSize=${pageSize}&startDate=&endDate=&_=${Date.now()}`;
+    console.log('[API] fetchFundHistory URL:', url);
+    
+    const response = await fetch(url);
+    console.log('[API] Response status:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('[API] Response Data is null:', result.Data === null);
+    console.log('[API] Response has LSJZList:', result.Data?.LSJZList ? 'yes (' + result.Data.LSJZList.length + ')' : 'no');
+    
+    if (!result.Data || !result.Data.LSJZList) {
+      console.log('[API] No data returned');
+      return [];
+    }
+    
+    const mapped = result.Data.LSJZList
+      .filter((item: any) => item.FSRQ && item.DWJZ) // 过滤无效数据
+      .map((item: any) => ({
+        date: item.FSRQ,
+        nav: parseFloat(item.DWJZ),
+        accNav: parseFloat(item.LJJZ || '0'),
+        dailyChangeRate: parseFloat(item.JZZZL || '0'),
+        buyStatus: item.SGZT || '-',
+        sellStatus: item.SHZT || '-',
+      }));
+    
+    console.log('[API] Mapped data:', mapped.length, 'records');
+    return mapped;
+  } catch (error) {
+    console.error(`[API] 获取历史净值失败 ${fundCode}:`, error);
+    return [];
+  }
+}
+
 export function clearNavCache(): void {
   navCache.clear();
   valuationCache = null;

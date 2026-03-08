@@ -25,22 +25,26 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // 东方财富基金API代理
+      '/api/eastmoney': {
+        target: 'https://fundmobapi.eastmoney.com',
+        changeOrigin: true,
+        rewrite: (path) => {
+          const newPath = path.replace(/^\/api\/eastmoney/, '')
+          console.log('[Proxy] Rewrite:', path, '->', newPath)
+          return newPath
+        },
+      },
+      // 东方财富搜索API代理
+      '/api/suggest': {
+        target: 'https://searchapi.eastmoney.com',
+        changeOrigin: true,
+      },
       // 且慢估值API代理
       '/api/qieman': {
         target: 'https://qieman.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/qieman/, ''),
-        configure: (proxy, options) => {
-          proxy.on('proxyReq', (proxyReq, req, res) => {
-            proxyReq.setHeader('Origin', 'https://qieman.com')
-          })
-        }
-      },
-      // 东方财富基金API代理
-      '/api/eastmoney': {
-        target: 'https://fundmobapi.eastmoney.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/eastmoney/, ''),
       },
     }
   }

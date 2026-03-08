@@ -117,10 +117,16 @@ export interface StrategyRule {
 export interface FundApiData {
   code: string;
   name: string;
-  nav: number;
-  navDate: string;
-  dailyChange: number;
-  dailyChangeRate: number;
+  nav: number;              // 单位净值
+  accNav?: number;         // 累计净值
+  navDate: string;         // 净值日期
+  dailyChange: number;     // 涨跌额
+  dailyChangeRate: number; // 日涨跌幅(%)
+  // 扩展字段
+  newPrice?: number;       // ETF实时价格
+  priceChangeRate?: number;// 价格涨跌幅(%)
+  fundFlow?: number;       // 资金流入(亿元)
+  marketTime?: string;     // 行情时间
 }
 
 // 市场估值API返回类型
@@ -132,4 +138,13 @@ export interface MarketValuationData {
   temperature: number;  // 市场温度 0-100
   source?: string;      // 数据来源：'qieman' | 'error'
   error?: string;       // 错误信息（获取失败时）
+}
+
+// 基金搜索结果
+export interface FundSearchResult {
+  code: string;
+  name: string;
+  type?: string;
+  nav?: number;
+  navDate?: string;
 }

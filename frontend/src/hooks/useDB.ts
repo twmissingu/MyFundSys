@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { db, initFundData, initStrategyData } from '../db';
+import { db, initStrategyData } from '../db';
 import type { Fund, Holding, Transaction, Strategy } from '../types';
 
 // 初始化数据库
@@ -10,7 +10,6 @@ export function useInitDB() {
   useEffect(() => {
     const init = async () => {
       try {
-        await initFundData();
         await initStrategyData();
         setInitialized(true);
       } catch (err) {

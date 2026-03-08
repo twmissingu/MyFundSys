@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, List, Button, Dialog, Form, Input, Toast, SwipeAction, Tabs, Tag } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { useHoldings, useFunds, addTransaction, deleteHolding } from '../hooks/useSync';
+import { useHoldings, addTransaction, deleteHolding } from '../hooks/useSync';
+import { db, FundCacheItem } from '../db';
 import { formatMoney, formatPercent } from '../utils';
 import './Layout.css';
 
@@ -10,10 +11,19 @@ const COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2'
 
 const Holdings: React.FC = () => {
   const { holdings, refresh } = useHoldings();
-  const { funds } = useFunds();
+  const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('list');
   const [form] = Form.useForm();
+
+  // 加载基金缓存
+  useEffect(() => {
+    const loadFundCache = async () => {
+      const funds = await db.fundCache.toArray();
+      setFundCache(funds);
+    };
+    loadFundCache();
+  }, []);
 
   // 计算汇总数据
   const totalAssets = holdings.reduce((sum, h) => sum + (h.currentValue || h.totalCost), 0);
@@ -26,7 +36,7 @@ const Holdings: React.FC = () => {
     const stats: Record<string, { value: number; cost: number; count: number }> = {};
     
     holdings.forEach(holding => {
-      const fund = funds.find(f => f.code === holding.fundCode);
+      const fund = fundCache.find(f => f.code === holding.fundCode);
       const category = fund?.category || '其他';
       const value = holding.currentValue || holding.totalCost;
       
@@ -46,7 +56,7 @@ const Holdings: React.FC = () => {
       profit: data.value - data.cost,
       profitRate: data.cost > 0 ? (data.value - data.cost) / data.cost : 0,
     })).sort((a, b) => b.value - a.value);
-  }, [holdings, funds]);
+  }, [holdings, fundCache]);
 
   // 按市场统计
   const marketStats = useMemo(() => {
@@ -62,7 +72,7 @@ const Holdings: React.FC = () => {
     const stats: Record<string, { value: number; cost: number; count: number }> = {};
     
     holdings.forEach(holding => {
-      const fund = funds.find(f => f.code === holding.fundCode);
+      const fund = fundCache.find(f => f.code === holding.fundCode);
       const category = fund?.category || '其他';
       const market = marketMap[category] || '其他';
       const value = holding.currentValue || holding.totalCost;
@@ -82,14 +92,20 @@ const Holdings: React.FC = () => {
       count: data.count,
       profit: data.value - data.cost,
       profitRate: data.cost > 0 ? (data.value - data.cost) / data.cost : 0,
-    })).sort((a, b) => b.value - a.value);
-  }, [holdings, funds]);
+    })).sort((a, b) => b.value - b.value);
+  }, [holdings, fundCache]);
 
   const handleAddTransaction = async (values: any) => {
     try {
-      const fund = funds.find(f => f.code === values.fundCode);
+      // 从缓存中查找基金
+      let fund = fundCache.find(f => f.code === values.fundCode);
+      
+      // 如果缓存中没有，尝试从API获取基金信息
       if (!fund) {
-        Toast.show({ content: '基金不存在', position: 'bottom' });
+        Toast.show({ 
+          content: '请先搜索添加该基金到列表', 
+          position: 'bottom' 
+        });
         return;
       }
 
@@ -349,7 +365,7 @@ const Holdings: React.FC = () => {
               label="基金代码"
               rules={[{ required: true, message: '请输入基金代码' }]}
             >
-              <Input placeholder="如: 510300" />
+              <Input placeholder="如: 510300（需先在基金列表搜索添加）" />
             </Form.Item>
 
             <Form.Item
