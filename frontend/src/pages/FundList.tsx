@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, List, SearchBar, Tag } from 'antd-mobile';
-import { useFunds } from '../hooks/useSupabase';
+import { useFunds } from '../hooks/useSync';
 import './Layout.css';
 
 const FundList: React.FC = () => {

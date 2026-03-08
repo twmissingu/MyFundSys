@@ -13,15 +13,3 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const isSupabaseConfigured = (): boolean => {
   return !!supabaseUrl && !!supabaseAnonKey;
 };
-
-// 获取当前用户
-export const getCurrentUser = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
-};
-
-// 获取当前会话
-export const getCurrentSession = async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session;
-};

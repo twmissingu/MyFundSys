@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TabBar, Button, Toast } from 'antd-mobile';
+import { TabBar, Button, Toast, Badge } from 'antd-mobile';
 import {
   AppOutline,
   HistogramOutline,
@@ -16,15 +16,15 @@ import Articles from './Articles';
 import Strategy from './Strategy';
 import Settings from './Settings';
 import AuthPage from './AuthPage';
-import { useCurrentUser, signOut } from '../hooks/useSupabase';
+import { useAuthStatus, signOut, useSyncStatus } from '../hooks/useSync';
 import { isSupabaseConfigured } from '../lib/supabase';
 import './Layout.css';
 
 const Layout: React.FC = () => {
   const [activeKey, setActiveKey] = useState('dashboard');
-  const [showAuth, setShowAuth] = useState(false);
   const [currentView, setCurrentView] = useState<{ type: string; params?: any }>({ type: 'tab' });
-  const { user } = useCurrentUser();
+  const { isAuthenticated, loading } = useAuthStatus();
+  const syncStatus = useSyncStatus();
   const isConfigured = isSupabaseConfigured();
 
   // 监听 hash 变化
@@ -56,13 +56,6 @@ const Layout: React.FC = () => {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
-
-  // 如果没有配置 Supabase，显示警告
-  useEffect(() => {
-    if (!isConfigured) {
-      console.warn('Supabase not configured. Running in local-only mode.');
-    }
-  }, [isConfigured]);
 
   const tabs = [
     {
@@ -112,12 +105,9 @@ const Layout: React.FC = () => {
   const activeTab = tabs.find(tab => tab.key === activeKey);
 
   const handleLogout = async () => {
-    const { error } = await signOut();
-    if (error) {
-      Toast.show({ content: '退出失败', position: 'bottom' });
-    } else {
-      Toast.show({ content: '已退出登录', position: 'bottom' });
-    }
+    await signOut();
+    Toast.show({ content: '已退出登录', position: 'bottom' });
+    window.location.reload();
   };
 
   // 渲染当前内容
@@ -128,59 +118,64 @@ const Layout: React.FC = () => {
     return activeTab?.component;
   };
 
-  // 如果显示认证页面
-  if (showAuth) {
-    return (
-      <AuthPage onAuthSuccess={() => setShowAuth(false)} />
-    );
+  // 如果还在加载中，显示空白
+  if (loading) {
+    return <div className="layout-container" />;
+  }
+
+  // 如果未登录，显示登录页
+  if (!isAuthenticated) {
+    return <AuthPage onAuthSuccess={() => window.location.reload()} />;
   }
 
   return (
     <div className="layout-container">
-      {/* 顶部用户状态栏 */}
-      {isConfigured && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 44,
-          background: '#fff',
-          borderBottom: '1px solid #f0f0f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          padding: '0 16px',
-          zIndex: 100,
-        }}>
-          {user ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>
-                {(user as any)?.email}
-              </span>
-              <Button
-                size="mini"
-                onClick={handleLogout}
-              >
-                退出
-              </Button>
-            </div>
-          ) : (
-            <Button
-              size="mini"
-              color="primary"
-              onClick={() => setShowAuth(true)}
-            >
-              登录/注册
-            </Button>
+      {/* 顶部状态栏 */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 44,
+        background: '#fff',
+        borderBottom: '1px solid #f0f0f0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 16px',
+        zIndex: 100,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isConfigured && (
+            <>
+              <Badge 
+                color={syncStatus.isOnline ? '#52c41a' : '#faad14'} 
+                content={syncStatus.isSyncing ? '同步中' : syncStatus.isOnline ? '在线' : '离线'}
+              />
+              {syncStatus.pendingChanges > 0 && (
+                <Badge content={`${syncStatus.pendingChanges} 待同步`} style={{ background: '#fa8c16' }} />
+              )}
+            </>
           )}
         </div>
-      )}
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 13, color: '#666' }}>
+            已登录
+          </span>
+          <Button
+            size="mini"
+            onClick={handleLogout}
+          >
+            退出
+          </Button>
+        </div>
+      </div>
 
       <div 
         className="content" 
         style={{ 
-          paddingTop: isConfigured ? 44 : 0,
+          paddingTop: 44,
           paddingBottom: currentView.type === 'tab' ? 60 : 0,
         }}
       >

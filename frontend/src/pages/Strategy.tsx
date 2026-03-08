@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, List, Button, Dialog, Form, Input, Toast, Tag, Picker, SwipeAction } from 'antd-mobile';
-import { useStrategies } from '../hooks/useSupabase';
+import { useStrategies } from '../hooks/useSync';
 import { runBacktest, generateMockPriceData } from '../services/backtest';
 import { formatMoney, formatPercent } from '../utils';
 import type { Strategy, BacktestResult, StrategyRule } from '../types';

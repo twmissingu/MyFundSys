@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Grid, Toast } from 'antd-mobile';
-import { useHoldings, useFunds } from '../hooks/useSupabase';
+import { useHoldings, useFunds } from '../hooks/useSync';
 import { fetchMarketValuation } from '../services/fundApi';
 import { formatMoney, formatPercent, getValuationStatus } from '../utils';
 import type { MarketValuationData } from '../types';

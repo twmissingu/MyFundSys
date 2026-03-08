@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog } from 'antd-mobile';
-import { useTransactions, deleteTransaction } from '../hooks/useSupabase';
+import { useTransactions, deleteTransaction } from '../hooks/useSync';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 

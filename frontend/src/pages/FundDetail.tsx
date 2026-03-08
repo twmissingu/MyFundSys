@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, List, Tabs, Tag, Toast, SpinLoading } from 'antd-mobile';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useFunds } from '../hooks/useSupabase';
+import { useFunds } from '../hooks/useSync';
 import { fetchFundNav } from '../services/fundApi';
 import { formatMoney, formatPercent } from '../utils';
 import type { FundApiData } from '../types';

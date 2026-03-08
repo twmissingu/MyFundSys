@@ -1,10 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase, getCurrentUser, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Fund, Holding, Transaction, Strategy } from '../types';
-import type { User } from '@supabase/supabase-js';
 
 // ============================================
-// 认证相关 Hooks
+// 认证相关 Hooks (简化版 - 本地密码验证)
 // ============================================
 
 // 检查 Supabase 是否配置
@@ -12,60 +11,44 @@ export function useSupabaseConfig() {
   return { isConfigured: isSupabaseConfigured() };
 }
 
-// 获取当前用户
-export function useCurrentUser() {
-  const [user, setUser] = useState<User | null>(null);
+// 检查是否已登录
+export function useAuthStatus() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const getUser = async () => {
-      const currentUser = await getCurrentUser();
-      setUser(currentUser);
+    const checkAuth = () => {
+      const auth = localStorage.getItem('myfundsys_auth');
+      const authTime = localStorage.getItem('myfundsys_auth_time');
+      
+      if (auth === 'true' && authTime) {
+        // 检查登录是否过期（30天）
+        const elapsed = Date.now() - parseInt(authTime);
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+        
+        if (elapsed < thirtyDays) {
+          setIsAuthenticated(true);
+        } else {
+          // 登录过期，清除状态
+          localStorage.removeItem('myfundsys_auth');
+          localStorage.removeItem('myfundsys_auth_time');
+          setIsAuthenticated(false);
+        }
+      }
       setLoading(false);
     };
-    getUser();
-
-    // 监听认证状态变化
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
+    
+    checkAuth();
   }, []);
 
-  return { user, loading };
-}
-
-// 登录
-export async function signIn(email: string, password: string) {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-  return { data, error };
-}
-
-// 注册
-export async function signUp(email: string, password: string) {
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-  });
-  return { data, error };
+  return { isAuthenticated, loading };
 }
 
 // 登出
 export async function signOut() {
-  const { error } = await supabase.auth.signOut();
-  return { error };
-}
-
-// 密码重置
-export async function resetPassword(email: string) {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/MyFundSys/reset-password`,
-  });
-  return { error };
+  localStorage.removeItem('myfundsys_auth');
+  localStorage.removeItem('myfundsys_auth_time');
+  return { error: null };
 }
 
 // ============================================
@@ -191,12 +174,8 @@ export function useHoldings() {
 
 // 添加或更新持仓
 export async function upsertHolding(holding: Omit<Holding, 'createdAt' | 'updatedAt'>) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-
   const payload = {
     id: holding.id,
-    user_id: user.id,
     fund_id: holding.fundId,
     fund_code: holding.fundCode,
     fund_name: holding.fundName,
@@ -307,14 +286,10 @@ export function useTransactions(fundCode?: string) {
 
 // 添加交易记录
 export async function addTransaction(transaction: Omit<Transaction, 'id' | 'createdAt'>) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-
   const id = `t_${Date.now()}`;
   
   const payload = {
     id,
-    user_id: user.id,
     fund_id: transaction.fundId,
     fund_code: transaction.fundCode,
     fund_name: transaction.fundName,
@@ -353,15 +328,11 @@ export async function deleteTransaction(id: string) {
 
 // 更新持仓（内部函数）
 async function updateHoldingAfterTransaction(transaction: Omit<Transaction, 'id' | 'createdAt'>) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
   // 查找现有持仓
   const { data: existingHoldings } = await supabase
     .from('holdings')
     .select('*')
-    .eq('fund_code', transaction.fundCode)
-    .eq('user_id', user.id);
+    .eq('fund_code', transaction.fundCode);
 
   const existingHolding = (existingHoldings as any[])?.[0];
 
@@ -387,7 +358,6 @@ async function updateHoldingAfterTransaction(transaction: Omit<Transaction, 'id'
         .from('holdings')
         .insert({
           id,
-          user_id: user.id,
           fund_id: transaction.fundId,
           fund_code: transaction.fundCode,
           fund_name: transaction.fundName,

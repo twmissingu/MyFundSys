@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Card, List, Button, Dialog, Form, Input, Toast, SwipeAction, Tabs, Tag } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { useHoldings, useFunds, addTransaction, deleteHolding } from '../hooks/useSupabase';
+import { useHoldings, useFunds, addTransaction, deleteHolding } from '../hooks/useSync';
 import { formatMoney, formatPercent } from '../utils';
 import './Layout.css';
 

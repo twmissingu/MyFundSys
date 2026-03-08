@@ -1,6 +1,46 @@
 import Dexie, { Table } from 'dexie';
 import type { Fund, Holding, Transaction, Article, Strategy, BacktestResult } from '../types';
 
+// 同步队列条目
+export interface SyncQueueItem {
+  id?: number;
+  table: 'holdings' | 'transactions';
+  action: 'insert' | 'update' | 'delete';
+  data: any;
+  synced: number; // 0 = 未同步, 1 = 已同步
+  createdAt: string;
+}
+
+// 定时任务配置
+export interface ScheduledTask {
+  id?: number;
+  name: string;
+  type: 'fetch_nav' | 'generate_report' | 'feishu_notify';
+  enabled: boolean;
+  schedule: string; // cron 表达式或预设值
+  config: any; // 任务特定配置
+  lastRunAt?: string;
+  nextRunAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 飞书配置
+export interface FeishuConfig {
+  id?: number;
+  webhookUrl: string;
+  secret?: string; // 签名密钥（可选）
+  enabled: boolean;
+  notifyOn: {
+    dailyReport: boolean;
+    weeklyReport: boolean;
+    largeFluctuation: boolean;
+    transactionAdded: boolean;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export class FundDatabase extends Dexie {
   funds!: Table<Fund>;
   holdings!: Table<Holding>;
@@ -8,23 +48,32 @@ export class FundDatabase extends Dexie {
   articles!: Table<Article>;
   strategies!: Table<Strategy>;
   backtestResults!: Table<BacktestResult>;
+  syncQueue!: Table<SyncQueueItem>;
+  scheduledTasks!: Table<ScheduledTask>;
+  feishuConfig!: Table<FeishuConfig>;
 
   constructor() {
     super('FundDatabase');
-    this.version(2).stores({
+    this.version(3).stores({
       funds: 'id, code, name, category, updatedAt',
       holdings: 'id, fundId, fundCode, updatedAt',
       transactions: 'id, fundId, fundCode, type, date, createdAt',
       articles: 'id, title, date, source, category',
       strategies: 'id, name, type, updatedAt',
       backtestResults: 'id, strategyName, startDate, endDate',
+      syncQueue: '++id, table, synced, createdAt',
+      scheduledTasks: '++id, name, type, enabled',
+      feishuConfig: '++id, enabled',
     });
   }
 }
 
 export const db = new FundDatabase();
 
+// ============================================
 // 初始化基金数据 - 95只ETF基金
+// ============================================
+
 export async function initFundData(): Promise<void> {
   const count = await db.funds.count();
   if (count > 0) return;
@@ -138,7 +187,10 @@ export async function initFundData(): Promise<void> {
   await db.funds.bulkAdd(funds);
 }
 
+// ============================================
 // 初始化策略数据
+// ============================================
+
 export async function initStrategyData(): Promise<void> {
   const count = await db.strategies.count();
   if (count > 0) return;
@@ -186,7 +238,63 @@ export async function initStrategyData(): Promise<void> {
   await db.strategies.bulkAdd(strategies);
 }
 
+// ============================================
+// 初始化默认定时任务
+// ============================================
+
+export async function initDefaultTasks(): Promise<void> {
+  const count = await db.scheduledTasks.count();
+  if (count > 0) return;
+
+  const defaultTasks: ScheduledTask[] = [
+    {
+      name: '自动抓取净值',
+      type: 'fetch_nav',
+      enabled: false,
+      schedule: '0 18 * * 1-5', // 工作日18:00
+      config: {
+        sources: ['tiantian', 'xueqiu'],
+        retryCount: 3,
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      name: '生成日报',
+      type: 'generate_report',
+      enabled: false,
+      schedule: '0 19 * * 1-5', // 工作日19:00
+      config: {
+        includeHoldings: true,
+        includeValuation: true,
+        includeSuggestions: true,
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      name: '飞书推送',
+      type: 'feishu_notify',
+      enabled: false,
+      schedule: '0 19 * * 1-5', // 工作日19:00
+      config: {
+        sendDaily: true,
+        sendWeekly: true,
+        sendOnLargeFluctuation: true,
+        fluctuationThreshold: 3, // 涨跌超过3%时推送
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ];
+
+  await db.scheduledTasks.bulkAdd(defaultTasks);
+}
+
+// ============================================
 // 导出数据库为JSON
+// ============================================
+
 export async function exportDatabase(): Promise<string> {
   const funds = await db.funds.toArray();
   const holdings = await db.holdings.toArray();
@@ -194,7 +302,7 @@ export async function exportDatabase(): Promise<string> {
   const strategies = await db.strategies.toArray();
 
   const data = {
-    version: '2.0.0',
+    version: '2.1.0',
     exportDate: new Date().toISOString(),
     funds,
     holdings,
@@ -205,7 +313,10 @@ export async function exportDatabase(): Promise<string> {
   return JSON.stringify(data, null, 2);
 }
 
+// ============================================
 // 从JSON导入数据库
+// ============================================
+
 export async function importDatabase(jsonString: string): Promise<void> {
   const data = JSON.parse(jsonString);
 
