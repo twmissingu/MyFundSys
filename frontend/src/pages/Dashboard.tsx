@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Grid, Toast } from 'antd-mobile';
+import { Card, Toast } from 'antd-mobile';
 import { useHoldings, useFunds } from '../hooks/useSync';
 import { fetchMarketValuation } from '../services/fundApi';
 import { formatMoney, formatPercent, getValuationStatus } from '../utils';
@@ -77,40 +77,6 @@ const Dashboard: React.FC = () => {
           {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)} ({formatPercent(totalProfitRate)})
         </div>
       </div>
-
-      {/* 快捷入口 */}
-      <Card title="快捷功能" className="card">
-        <Grid columns={4} gap={8}>
-          <Grid.Item
-            onClick={() => window.location.hash = 'holdings'}
-            style={{ textAlign: 'center', padding: '12px 0' }}
-          >
-            <div style={{ fontSize: 24, marginBottom: 8 }}>📊</div>
-            <div style={{ fontSize: 13 }}>持仓</div>
-          </Grid.Item>
-          <Grid.Item
-            onClick={() => window.location.hash = 'transactions'}
-            style={{ textAlign: 'center', padding: '12px 0' }}
-          >
-            <div style={{ fontSize: 24, marginBottom: 8 }}>💰</div>
-            <div style={{ fontSize: 13 }}>交易</div>
-          </Grid.Item>
-          <Grid.Item
-            onClick={() => window.location.hash = 'funds'}
-            style={{ textAlign: 'center', padding: '12px 0' }}
-          >
-            <div style={{ fontSize: 24, marginBottom: 8 }}>📈</div>
-            <div style={{ fontSize: 13 }}>基金</div>
-          </Grid.Item>
-          <Grid.Item
-            onClick={() => window.location.hash = 'articles'}
-            style={{ textAlign: 'center', padding: '12px 0' }}
-          >
-            <div style={{ fontSize: 24, marginBottom: 8 }}>📚</div>
-            <div style={{ fontSize: 13 }}>文章</div>
-          </Grid.Item>
-        </Grid>
-      </Card>
 
       {/* 持仓概览 */}
       <Card title="持仓概览" className="card">

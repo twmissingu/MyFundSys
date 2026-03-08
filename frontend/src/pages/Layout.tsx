@@ -6,6 +6,8 @@ import {
   UnorderedListOutline,
   SetOutline,
   FileOutline,
+  PayCircleOutline,
+  FlagOutline,
 } from 'antd-mobile-icons';
 import Dashboard from './Dashboard';
 import FundList from './FundList';
@@ -79,7 +81,7 @@ const Layout: React.FC = () => {
     {
       key: 'transactions',
       title: '交易',
-      icon: <FileOutline />,
+      icon: <PayCircleOutline />,
       component: <Transactions />,
     },
     {
@@ -91,7 +93,7 @@ const Layout: React.FC = () => {
     {
       key: 'strategy',
       title: '策略',
-      icon: <SetOutline />,
+      icon: <FlagOutline />,
       component: <Strategy />,
     },
     {
