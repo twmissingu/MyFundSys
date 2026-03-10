@@ -19,8 +19,6 @@ import {
   calculateMACD,
   calculateKDJ,
   calculateMA,
-  filterRecentData,
-  getDaysFromRange,
   formatDate,
   TimeRange,
 } from '../utils/technicalIndicators';
@@ -36,16 +34,59 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
   const [timeRange, setTimeRange] = useState<TimeRange>('3m');
   const [activeTab, setActiveTab] = useState('nav');
 
-  // 加载历史数据
+  // 根据时间区间计算需要的数据条数
+  const getPageSize = (range: TimeRange): number => {
+    const map: Record<TimeRange, number> = {
+      '1m': 30,    // 约1个月
+      '3m': 90,    // 约3个月
+      '6m': 180,   // 约6个月
+      '1y': 365,   // 约1年
+      'all': 9999, // 全部（API会返回所有可用数据）
+    };
+    return map[range];
+  };
+
+  // 加载历史数据（根据时间区间，支持分页加载）
   useEffect(() => {
     let isMounted = true;
     
     const loadHistory = async () => {
       setLoading(true);
-      const data = await fetchFundHistory(fundCode, 100);
+      const targetSize = getPageSize(timeRange);
+      console.log('[HistoryCard] Loading', timeRange, '- target', targetSize, 'records');
+      
+      let allData: FundHistoryData[] = [];
+      let pageIndex = 1;
+      const maxPages = 10; // 最多加载10页（约1000条）
+      
+      // 分页加载，直到获取足够数据或没有更多数据
+      while (allData.length < targetSize && pageIndex <= maxPages) {
+        const pageData = await fetchFundHistory(fundCode, 100, pageIndex);
+        
+        if (pageData.length === 0) {
+          break; // 没有更多数据
+        }
+        
+        allData = [...allData, ...pageData];
+        
+        // 如果当前页返回数据少于100条，说明是最后一页
+        if (pageData.length < 100) {
+          break;
+        }
+        
+        pageIndex++;
+      }
+      
+      // 按时间倒序排列（最新的在前）
+      allData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      // 截取目标数量
+      const finalData = allData.slice(0, targetSize);
+      
+      console.log('[HistoryCard] Loaded', finalData.length, 'records from', pageIndex, 'pages');
       
       if (isMounted) {
-        setHistoryData(data);
+        setHistoryData(finalData);
         setLoading(false);
       }
     };
@@ -53,19 +94,13 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
     loadHistory();
     
     return () => { isMounted = false; };
-  }, [fundCode]);
+  }, [fundCode, timeRange]);
 
-  // 根据时间区间过滤数据
-  const filteredData = useMemo(() => {
-    const days = getDaysFromRange(timeRange);
-    return filterRecentData(historyData, days);
-  }, [historyData, timeRange]);
-
-  // 计算技术指标
+  // 计算技术指标（直接使用API返回的数据，已按时间区间筛选）
   const chartData = useMemo(() => {
-    if (filteredData.length === 0) return [];
+    if (historyData.length === 0) return [];
     
-    const points = filteredData.map(d => ({ date: d.date, nav: d.nav }));
+    const points = historyData.map(d => ({ date: d.date, nav: d.nav }));
     const ma5 = calculateMA(points, 5);
     const ma10 = calculateMA(points, 10);
     const ma20 = calculateMA(points, 20);
@@ -86,7 +121,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
       d: kdj[i]?.d,
       j: kdj[i]?.j,
     }));
-  }, [filteredData]);
+  }, [historyData]);
 
   // 如果没有计算数据但有原始数据，创建简化版图表数据
   const displayData = useMemo(() => {
