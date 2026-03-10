@@ -203,6 +203,92 @@ export interface FundSearchResult {
   navDate?: string;
 }
 
+/**
+ * 按基金代码搜索（支持模糊匹配）
+ * @param code 基金代码（至少2位）
+ */
+export async function searchByCode(code: string): Promise<FundSearchResult[]> {
+  if (!code || code.trim().length < 2) {
+    return [];
+  }
+  
+  const trimmedCode = code.trim();
+  
+  try {
+    // 1. 先从本地缓存搜索
+    const localResults = await searchLocalByCode(trimmedCode);
+    
+    // 2. 如果本地有结果，直接返回
+    if (localResults.length > 0) {
+      await updateSearchCount(localResults.map(r => r.code));
+      return localResults;
+    }
+    
+    // 3. 本地没有，从东方财富API搜索
+    const apiResults = await searchFromEastMoney(trimmedCode);
+    // 过滤只保留代码匹配的结果
+    const filteredResults = apiResults.filter(f => 
+      f.code.toLowerCase().includes(trimmedCode.toLowerCase())
+    );
+    
+    // 4. 保存到本地缓存
+    if (filteredResults.length > 0) {
+      await saveFundCache(filteredResults);
+      await saveSearchHistory(`code:${trimmedCode}`, filteredResults.length);
+    }
+    
+    return filteredResults;
+  } catch (error) {
+    console.error('按代码搜索基金失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 按基金名称搜索（支持模糊匹配）
+ * @param name 基金名称（至少2个字）
+ */
+export async function searchByName(name: string): Promise<FundSearchResult[]> {
+  if (!name || name.trim().length < 2) {
+    return [];
+  }
+  
+  const trimmedName = name.trim();
+  
+  try {
+    // 1. 先从本地缓存搜索
+    const localResults = await searchLocalByName(trimmedName);
+    
+    // 2. 如果本地有结果，直接返回
+    if (localResults.length > 0) {
+      await updateSearchCount(localResults.map(r => r.code));
+      return localResults;
+    }
+    
+    // 3. 本地没有，从东方财富API搜索
+    const apiResults = await searchFromEastMoney(trimmedName);
+    // 过滤只保留名称匹配的结果
+    const filteredResults = apiResults.filter(f => 
+      f.name.toLowerCase().includes(trimmedName.toLowerCase())
+    );
+    
+    // 4. 保存到本地缓存
+    if (filteredResults.length > 0) {
+      await saveFundCache(filteredResults);
+      await saveSearchHistory(`name:${trimmedName}`, filteredResults.length);
+    }
+    
+    return filteredResults;
+  } catch (error) {
+    console.error('按名称搜索基金失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 综合搜索（代码或名称）- 保留原有功能
+ * @param keyword 关键词
+ */
 export async function searchFunds(keyword: string): Promise<FundSearchResult[]> {
   if (!keyword || keyword.trim().length < 2) {
     return [];
@@ -232,6 +318,56 @@ export async function searchFunds(keyword: string): Promise<FundSearchResult[]> 
     return apiResults;
   } catch (error) {
     console.error('搜索基金失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 本地缓存按代码搜索
+ */
+async function searchLocalByCode(code: string): Promise<FundSearchResult[]> {
+  try {
+    const allFunds = await db.fundCache.toArray();
+    const lowerCode = code.toLowerCase();
+    
+    return allFunds
+      .filter(fund => fund.code.toLowerCase().includes(lowerCode))
+      .sort((a, b) => b.searchCount - a.searchCount)
+      .slice(0, 10)
+      .map(fund => ({
+        code: fund.code,
+        name: fund.name,
+        type: fund.category,
+        nav: fund.nav,
+        navDate: fund.navDate,
+      }));
+  } catch (error) {
+    console.error('本地代码搜索失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 本地缓存按名称搜索
+ */
+async function searchLocalByName(name: string): Promise<FundSearchResult[]> {
+  try {
+    const allFunds = await db.fundCache.toArray();
+    const lowerName = name.toLowerCase();
+    
+    return allFunds
+      .filter(fund => fund.name.toLowerCase().includes(lowerName))
+      .sort((a, b) => b.searchCount - a.searchCount)
+      .slice(0, 10)
+      .map(fund => ({
+        code: fund.code,
+        name: fund.name,
+        type: fund.category,
+        nav: fund.nav,
+        navDate: fund.navDate,
+      }));
+  } catch (error) {
+    console.error('本地名称搜索失败:', error);
     return [];
   }
 }

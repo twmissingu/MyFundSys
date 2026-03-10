@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, List, SearchBar, Tag, Button, Toast, Dialog, SpinLoading, SwipeAction, Tabs, Form, Input } from 'antd-mobile';
 import { SearchOutline, RedoOutline, StarFill, StarOutline, AddOutline } from 'antd-mobile-icons';
-import { searchFunds, getCachedFunds, batchRefreshFunds, markFundAsHolding, FundSearchResult } from '../services/fundApi';
+import { searchByCode, searchByName, searchFunds, getCachedFunds, batchRefreshFunds, markFundAsHolding, FundSearchResult } from '../services/fundApi';
 import { useHoldings } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import './Layout.css';
@@ -9,10 +9,21 @@ import './Layout.css';
 const FundList: React.FC = () => {
   // 状态管理
   const [activeTab, setActiveTab] = useState('all');
+  
+  // 双搜索栏状态
+  const [codeSearchText, setCodeSearchText] = useState('');
+  const [nameSearchText, setNameSearchText] = useState('');
+  const [codeSearchResults, setCodeSearchResults] = useState<FundSearchResult[]>([]);
+  const [nameSearchResults, setNameSearchResults] = useState<FundSearchResult[]>([]);
+  const [isCodeSearching, setIsCodeSearching] = useState(false);
+  const [isNameSearching, setIsNameSearching] = useState(false);
+  
+  // 兼容旧版搜索
   const [searchText, setSearchText] = useState('');
   const [searchResults, setSearchResults] = useState<FundSearchResult[]>([]);
-  const [cachedFunds, setCachedFunds] = useState<FundCacheItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  
+  const [cachedFunds, setCachedFunds] = useState<FundCacheItem[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0 });
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -49,7 +60,65 @@ const FundList: React.FC = () => {
     syncHoldingStatus();
   }, [holdings, cachedFunds, loadCachedFunds]);
 
-  // 搜索基金
+  // 按代码搜索基金
+  const handleCodeSearch = async (value: string) => {
+    setCodeSearchText(value);
+    setNameSearchText(''); // 清空名称搜索
+    setNameSearchResults([]);
+    
+    if (!value || value.trim().length < 2) {
+      setCodeSearchResults([]);
+      return;
+    }
+    
+    setIsCodeSearching(true);
+    try {
+      const results = await searchByCode(value.trim());
+      setCodeSearchResults(results);
+      
+      // 刷新缓存列表
+      await loadCachedFunds();
+      
+      if (results.length === 0) {
+        Toast.show({ content: '未找到匹配代码的基金', position: 'bottom' });
+      }
+    } catch (error) {
+      Toast.show({ content: '搜索失败', position: 'bottom' });
+    } finally {
+      setIsCodeSearching(false);
+    }
+  };
+
+  // 按名称搜索基金
+  const handleNameSearch = async (value: string) => {
+    setNameSearchText(value);
+    setCodeSearchText(''); // 清空代码搜索
+    setCodeSearchResults([]);
+    
+    if (!value || value.trim().length < 2) {
+      setNameSearchResults([]);
+      return;
+    }
+    
+    setIsNameSearching(true);
+    try {
+      const results = await searchByName(value.trim());
+      setNameSearchResults(results);
+      
+      // 刷新缓存列表
+      await loadCachedFunds();
+      
+      if (results.length === 0) {
+        Toast.show({ content: '未找到匹配名称的基金', position: 'bottom' });
+      }
+    } catch (error) {
+      Toast.show({ content: '搜索失败', position: 'bottom' });
+    } finally {
+      setIsNameSearching(false);
+    }
+  };
+
+  // 兼容旧版搜索（综合搜索）
   const handleSearch = async (value: string) => {
     setSearchText(value);
     
@@ -229,13 +298,92 @@ const FundList: React.FC = () => {
       Toast.show({ content: '添加成功', position: 'bottom' });
       setShowAddDialog(false);
       addForm.resetFields();
+      
+      // 清空搜索结果
+      setCodeSearchText('');
+      setCodeSearchResults([]);
+      setNameSearchText('');
+      setNameSearchResults([]);
+      
       await loadCachedFunds();
     } catch (error) {
       Toast.show({ content: '添加失败', position: 'bottom' });
     }
   };
 
-  // 渲染搜索结果
+  // 渲染代码搜索结果
+  const renderCodeSearchResults = () => (
+    <Card 
+      title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <SearchOutline />
+        <span>代码搜索结果</span>
+        <Tag color='primary'>{codeSearchResults.length}</Tag>
+      </div>} 
+      className="card"
+      style={{ marginBottom: 12 }}
+    >
+      <List>
+        {codeSearchResults.map((fund, index) => (
+          <List.Item
+            key={`code-search-${fund.code}-${index}`}
+            title={<span style={{ fontSize: 15, fontWeight: 500 }}>{fund.name}</span>}
+            description={
+              <div style={{ fontSize: 13, color: '#999' }}>
+                代码: {fund.code}
+                {fund.type && <span> | {fund.type}</span>}
+              </div>
+            }
+            onClick={() => handleFundClick(fund.code)}
+            arrow
+          />
+        ))}
+      </List>
+      
+      {codeSearchResults.length === 0 && !isCodeSearching && codeSearchText.length >= 2 && (
+        <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+          未找到匹配代码的基金
+        </div>
+      )}
+    </Card>
+  );
+
+  // 渲染名称搜索结果
+  const renderNameSearchResults = () => (
+    <Card 
+      title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <SearchOutline />
+        <span>名称搜索结果</span>
+        <Tag color='primary'>{nameSearchResults.length}</Tag>
+      </div>} 
+      className="card"
+      style={{ marginBottom: 12 }}
+    >
+      <List>
+        {nameSearchResults.map((fund, index) => (
+          <List.Item
+            key={`name-search-${fund.code}-${index}`}
+            title={<span style={{ fontSize: 15, fontWeight: 500 }}>{fund.name}</span>}
+            description={
+              <div style={{ fontSize: 13, color: '#999' }}>
+                代码: {fund.code}
+                {fund.type && <span> | {fund.type}</span>}
+              </div>
+            }
+            onClick={() => handleFundClick(fund.code)}
+            arrow
+          />
+        ))}
+      </List>
+      
+      {nameSearchResults.length === 0 && !isNameSearching && nameSearchText.length >= 2 && (
+        <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+          未找到匹配名称的基金
+        </div>
+      )}
+    </Card>
+  );
+
+  // 兼容旧版搜索结果
   const renderSearchResults = () => (
     <Card 
       title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -275,25 +423,53 @@ const FundList: React.FC = () => {
     <div className="page-container">
       <h1 className="page-title">基金列表</h1>
 
-      {/* 搜索栏 */}
+      {/* 双搜索栏 */}
       <Card className="card" style={{ marginBottom: 12 }}>
-        <SearchBar
-          placeholder="搜索基金代码或名称（至少2个字）"
-          value={searchText}
-          onChange={handleSearch}
-          style={{ marginBottom: 8 }}
-        />
-        
-        {isSearching && (
-          <div style={{ textAlign: 'center', padding: '10px' }}>
-            <SpinLoading style={{ '--size': '24px' }} />
-            <span style={{ marginLeft: 8, color: '#999', fontSize: 13 }}>搜索中...</span>
+        {/* 代码搜索 */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: '#333' }}>
+            基金代码搜索
           </div>
-        )}
+          <SearchBar
+            placeholder="输入基金代码（如：510300，至少2位）"
+            value={codeSearchText}
+            onChange={handleCodeSearch}
+          />
+          {isCodeSearching && (
+            <div style={{ textAlign: 'center', padding: '8px' }}>
+              <SpinLoading style={{ '--size': '20px' }} />
+              <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>代码搜索中...</span>
+            </div>
+          )}
+        </div>
+
+        {/* 分割线 */}
+        <div style={{ borderTop: '1px solid #f0f0f0', margin: '12px 0' }} />
+
+        {/* 名称搜索 */}
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: '#333' }}>
+            基金名称搜索
+          </div>
+          <SearchBar
+            placeholder="输入基金名称（如：沪深300，至少2个字）"
+            value={nameSearchText}
+            onChange={handleNameSearch}
+          />
+          {isNameSearching && (
+            <div style={{ textAlign: 'center', padding: '8px' }}>
+              <SpinLoading style={{ '--size': '20px' }} />
+              <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>名称搜索中...</span>
+            </div>
+          )}
+        </div>
       </Card>
 
-      {/* 搜索结果 */}
-      {searchResults.length > 0 && renderSearchResults()}
+      {/* 代码搜索结果 */}
+      {codeSearchResults.length > 0 && renderCodeSearchResults()}
+
+      {/* 名称搜索结果 */}
+      {nameSearchResults.length > 0 && renderNameSearchResults()}
 
       {/* 手动添加按钮 */}
       <div style={{ marginBottom: 12 }}>
