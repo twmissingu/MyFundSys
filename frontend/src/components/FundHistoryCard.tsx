@@ -9,7 +9,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  BarChart,
   Bar,
   ComposedChart,
   Area,
@@ -36,6 +35,25 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('3m');
   const [activeTab, setActiveTab] = useState('nav');
+
+  // 加载历史数据
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadHistory = async () => {
+      setLoading(true);
+      const data = await fetchFundHistory(fundCode, 100);
+      
+      if (isMounted) {
+        setHistoryData(data);
+        setLoading(false);
+      }
+    };
+    
+    loadHistory();
+    
+    return () => { isMounted = false; };
+  }, [fundCode]);
 
   // 根据时间区间过滤数据
   const filteredData = useMemo(() => {
@@ -86,43 +104,8 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
     return [];
   }, [chartData, historyData]);
 
-  // 加载历史数据
-  useEffect(() => {
-    console.log('[HistoryCard] Effect triggered, fundCode:', fundCode);
-    let isMounted = true;
-    
-    const loadHistory = async () => {
-      console.log('[HistoryCard] Loading history for:', fundCode);
-      setLoading(true);
-      try {
-        const data = await fetchFundHistory(fundCode, 100);
-        console.log('[HistoryCard] Loaded data:', data.length, 'records');
-        if (data.length > 0) {
-          console.log('[HistoryCard] Sample record:', JSON.stringify(data[0]));
-        }
-        
-        if (isMounted) {
-          setHistoryData(data);
-          setLoading(false);
-          console.log('[HistoryCard] State updated');
-        }
-      } catch (err) {
-        console.error('[HistoryCard] Error loading:', err);
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-    
-    if (fundCode) {
-      loadHistory();
-    }
-    
-    return () => { 
-      console.log('[HistoryCard] Cleanup');
-      isMounted = false; 
-    };
-  }, [fundCode]);
+  // 是否有技术指标数据
+  const hasIndicators = chartData.length > 0 && chartData[0]?.dif !== undefined;
 
   // 时间区间选项
   const timeRangeOptions: { key: TimeRange; label: string }[] = [
@@ -156,22 +139,10 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
   }
 
   if (displayData.length === 0) {
-    console.log('[HistoryCard] Empty displayData - historyData:', historyData.length, 'loading:', loading);
-    // 如果数据还没加载完，继续显示加载状态
-    if (historyData.length === 0) {
-      return (
-        <Card title="历史表现" className="history-card">
-          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            暂无历史数据
-          </div>
-        </Card>
-      );
-    }
-    // 有原始数据但处理失败的情况
     return (
       <Card title="历史表现" className="history-card">
         <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-          数据处理中...({historyData.length}条)
+          暂无历史数据
         </div>
       </Card>
     );
@@ -208,7 +179,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
       </div>
 
       {/* 简化数据提示 */}
-      {chartData.length === 0 && historyData.length > 0 && (
+      {!hasIndicators && (
         <div style={{ 
           padding: '8px 12px', 
           marginBottom: 12, 
@@ -246,6 +217,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
         onChange={setActiveTab}
         className="chart-tabs"
       >
+        {/* 净值走势 */}
         <Tabs.Tab title="净值走势" key="nav">
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={250}>
@@ -275,7 +247,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                   fill="#e6f4ff"
                   strokeWidth={2}
                 />
-                {chartData.length > 0 && (
+                {hasIndicators && (
                   <>
                     <Line
                       type="monotone"
@@ -300,11 +272,12 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
           </div>
         </Tabs.Tab>
 
-        {chartData.length > 0 && (
+        {/* MACD - 只在有指标数据时显示 */}
+        {hasIndicators && (
           <Tabs.Tab title="MACD" key="macd">
             <div className="chart-container">
               <ResponsiveContainer width="100%" height={250}>
-                <ComposedChart data={displayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="dateStr" 
@@ -319,7 +292,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="macd" name="MACD">
-                    {displayData.map((entry, index) => (
+                    {chartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={(entry.macd ?? 0) >= 0 ? '#ff4d4f' : '#52c41a'} />
                     ))}
                   </Bar>
@@ -345,11 +318,12 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
           </Tabs.Tab>
         )}
 
-        {chartData.length > 0 && (
+        {/* KDJ - 只在有指标数据时显示 */}
+        {hasIndicators && (
           <Tabs.Tab title="KDJ" key="kdj">
             <div className="chart-container">
               <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={displayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="dateStr" 
@@ -377,14 +351,14 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
 
       {/* 指标说明 */}
       <div className="indicator-tips">
-        {activeTab === 'macd' && chartData.length > 0 && (
+        {activeTab === 'macd' && hasIndicators && (
           <p>MACD：DIF上穿DEA为买入信号，下穿为卖出信号</p>
         )}
-        {activeTab === 'kdj' && chartData.length > 0 && (
+        {activeTab === 'kdj' && hasIndicators && (
           <p>KDJ：K&gt;80超买，K&lt;20超卖；J值&gt;100严重超买，&lt;0严重超卖</p>
         )}
-        {(activeTab === 'nav' || chartData.length === 0) && (
-          <p>净值走势：{chartData.length > 0 ? 'MA5（5日均线）、MA10（10日均线）' : '原始净值数据'}</p>
+        {(activeTab === 'nav' || !hasIndicators) && (
+          <p>净值走势：{hasIndicators ? 'MA5（5日均线）、MA10（10日均线）' : '原始净值数据'}</p>
         )}
       </div>
     </Card>
