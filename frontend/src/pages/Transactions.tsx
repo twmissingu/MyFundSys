@@ -3,7 +3,7 @@ import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input,
 import { AddOutline } from 'antd-mobile-icons';
 import { useTransactions, deleteTransaction, addTransaction } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
-import { searchByCode, FundSearchResult } from '../services/fundApi';
+import { searchByCode, FundSearchResult, fetchFundNav } from '../services/fundApi';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
@@ -19,6 +19,10 @@ const Transactions: React.FC = () => {
   const [codeSearchResults, setCodeSearchResults] = useState<FundSearchResult[]>([]);
   const [isCodeSearching, setIsCodeSearching] = useState(false);
   const [selectedFund, setSelectedFund] = useState<FundSearchResult | null>(null);
+  
+  // 当前交易类型和基金净值
+  const [currentTradeType, setCurrentTradeType] = useState<'buy' | 'sell'>('buy');
+  const [currentNav, setCurrentNav] = useState<number | null>(null);
 
   // 加载基金缓存
   useEffect(() => {
@@ -63,8 +67,34 @@ const Transactions: React.FC = () => {
     setCodeSearchText('');
     setCodeSearchResults([]);
     setSelectedFund(null);
-    form.setFieldsValue({ fundCode: undefined });
+    setCurrentNav(null);
+    form.setFieldsValue({ fundCode: undefined, amount: undefined, shares: undefined, fee: undefined });
   };
+  
+  // 监听交易类型变化
+  const handleTradeTypeChange = (type: 'buy' | 'sell') => {
+    setCurrentTradeType(type);
+    form.setFieldsValue({ type });
+    // 重置相关字段
+    form.setFieldsValue({ amount: undefined, shares: undefined, fee: undefined });
+  };
+  
+  // 获取基金净值
+  useEffect(() => {
+    const fetchNav = async () => {
+      if (selectedFund?.code) {
+        try {
+          const navData = await fetchFundNav(selectedFund.code);
+          if (navData) {
+            setCurrentNav(navData.nav);
+          }
+        } catch (error) {
+          console.error('获取净值失败:', error);
+        }
+      }
+    };
+    fetchNav();
+  }, [selectedFund]);
 
   // 筛选交易记录
   const filteredTransactions = transactions.filter(t => {
@@ -120,7 +150,45 @@ const Transactions: React.FC = () => {
         return;
       }
 
-      const shares = values.amount / values.price;
+      // 获取当日净值作为成交价格
+      let tradePrice = currentNav;
+      if (!tradePrice) {
+        try {
+          const navData = await fetchFundNav(fund.code);
+          tradePrice = navData?.nav || 0;
+        } catch (error) {
+          Toast.show({ content: '无法获取基金净值，请稍后重试', position: 'bottom' });
+          return;
+        }
+      }
+
+      if (!tradePrice || tradePrice <= 0) {
+        Toast.show({ content: '无法获取有效净值，请稍后重试', position: 'bottom' });
+        return;
+      }
+
+      // 根据交易类型计算份额和金额
+      let shares: number;
+      let amount: number;
+      
+      if (values.type === 'buy') {
+        // 买入：输入金额，计算份额
+        amount = Number(values.amount);
+        shares = amount / tradePrice;
+      } else {
+        // 卖出：输入份额，计算金额
+        shares = Number(values.shares);
+        amount = shares * tradePrice;
+      }
+
+      // 计算手续费（简化计算，实际应根据基金费率）
+      // 买入通常无手续费或已包含在净值中，卖出根据持有时间计算
+      let fee = 0;
+      if (values.type === 'sell') {
+        // 简化的手续费计算：持有时间不满7天1.5%，不满30天0.75%，满30天0.5%，满1年0.25%，满2年0
+        // 这里简化处理，实际应从持仓记录计算持有时间
+        fee = amount * 0.005; // 默认0.5%
+      }
       
       await addTransaction({
         fundId: fund.id,
@@ -128,17 +196,21 @@ const Transactions: React.FC = () => {
         fundName: fund.name,
         type: values.type,
         date: values.date,
-        amount: Number(values.amount),
-        price: Number(values.price),
+        amount: amount,
+        price: tradePrice,
         shares: shares,
-        fee: values.fee ? Number(values.fee) : 0,
+        fee: fee,
         remark: values.remark,
       });
 
-      Toast.show({ content: '添加成功', position: 'bottom' });
+      Toast.show({ 
+        content: `添加成功，${values.type === 'buy' ? '买入' : '卖出'}${shares.toFixed(2)}份`, 
+        position: 'bottom' 
+      });
       setShowAddDialog(false);
       resetSearch();
       form.resetFields();
+      setCurrentTradeType('buy');
       refresh();
     } catch (error) {
       console.error('Add transaction error:', error);
@@ -364,22 +436,41 @@ const Transactions: React.FC = () => {
               rules={[{ required: true }]}
               initialValue="buy"
             >
-              <div>
-                <Button
-                  size="small"
-                  color={form.getFieldValue('type') === 'buy' ? 'primary' : 'default'}
-                  onClick={() => form.setFieldsValue({ type: 'buy' })}
-                  style={{ marginRight: 8 }}
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div
+                  onClick={() => handleTradeTypeChange('buy')}
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    textAlign: 'center',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                    transition: 'all 0.2s',
+                    border: currentTradeType === 'buy' ? '2px solid #1677ff' : '1px solid #d9d9d9',
+                    backgroundColor: currentTradeType === 'buy' ? '#e6f4ff' : '#fff',
+                    color: currentTradeType === 'buy' ? '#1677ff' : '#666',
+                  }}
                 >
                   买入
-                </Button>
-                <Button
-                  size="small"
-                  color={form.getFieldValue('type') === 'sell' ? 'primary' : 'danger'}
-                  onClick={() => form.setFieldsValue({ type: 'sell' })}
+                </div>
+                <div
+                  onClick={() => handleTradeTypeChange('sell')}
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    textAlign: 'center',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                    transition: 'all 0.2s',
+                    border: currentTradeType === 'sell' ? '2px solid #ff4d4f' : '1px solid #d9d9d9',
+                    backgroundColor: currentTradeType === 'sell' ? '#fff1f0' : '#fff',
+                    color: currentTradeType === 'sell' ? '#ff4d4f' : '#666',
+                  }}
                 >
                   卖出
-                </Button>
+                </div>
               </div>
             </Form.Item>
 
@@ -392,28 +483,63 @@ const Transactions: React.FC = () => {
               <Input type="date" />
             </Form.Item>
 
-            <Form.Item
-              name="amount"
-              label="交易金额"
-              rules={[{ required: true, message: '请输入金额' }]}
-            >
-              <Input type="number" placeholder="0.00" />
-            </Form.Item>
-
-            <Form.Item
-              name="price"
-              label="成交价格"
-              rules={[{ required: true, message: '请输入价格' }]}
-            >
-              <Input type="number" placeholder="0.0000" />
-            </Form.Item>
-
-            <Form.Item
-              name="fee"
-              label="手续费"
-            >
-              <Input type="number" placeholder="0.00" />
-            </Form.Item>
+            {currentTradeType === 'buy' ? (
+              <>
+                <Form.Item
+                  name="amount"
+                  label="买入金额（元）"
+                  rules={[{ required: true, message: '请输入买入金额' }]}
+                  help={currentNav ? `当前净值: ${currentNav.toFixed(4)}` : ''}
+                >
+                  <Input 
+                    type="number" 
+                    placeholder="0.00" 
+                    onChange={(val) => {
+                      const amount = parseFloat(val || '0');
+                      if (amount > 0 && currentNav) {
+                        const shares = amount / currentNav;
+                        form.setFieldsValue({ shares: shares.toFixed(2) });
+                      }
+                    }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="shares"
+                  label="获得份额"
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input type="number" disabled placeholder="自动计算" />
+                </Form.Item>
+              </>
+            ) : (
+              <>
+                <Form.Item
+                  name="shares"
+                  label="卖出份额"
+                  rules={[{ required: true, message: '请输入卖出份额' }]}
+                  help={currentNav ? `当前净值: ${currentNav.toFixed(4)}` : ''}
+                >
+                  <Input 
+                    type="number" 
+                    placeholder="0.00" 
+                    onChange={(val) => {
+                      const shares = parseFloat(val || '0');
+                      if (shares > 0 && currentNav) {
+                        const amount = shares * currentNav;
+                        form.setFieldsValue({ amount: amount.toFixed(2) });
+                      }
+                    }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="amount"
+                  label="卖出金额（元）"
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input type="number" disabled placeholder="自动计算" />
+                </Form.Item>
+              </>
+            )}
 
             <Form.Item
               name="remark"
@@ -432,6 +558,7 @@ const Transactions: React.FC = () => {
                 setShowAddDialog(false);
                 resetSearch();
                 form.resetFields();
+                setCurrentTradeType('buy');
               },
             },
             {
