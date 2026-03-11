@@ -369,7 +369,7 @@ async function searchLocalFunds(keyword: string): Promise<FundSearchResult[]> {
 
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
   try {
-    const url = `${API_BASE}/api/suggest/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=10`;
+    const url = `${API_BASE}/api/suggest/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=20`;
     
     const response = await fetch(url);
     if (!response.ok) {
@@ -381,12 +381,14 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
     if (result && result.QuotationCodeTable && result.QuotationCodeTable.Data) {
       const data = result.QuotationCodeTable.Data;
       
+      // 过滤只保留基金（Classify为OTCFUND或FUND）
       return data
         .filter((item: any) => item.Code && item.Name)
+        .filter((item: any) => item.Classify === 'OTCFUND' || item.Classify === 'FUND')
         .map((item: any) => ({
           code: item.Code,
           name: item.Name,
-          type: item.Classes || 'ETF',
+          type: item.Classes || item.Classify || '基金',
         }));
     }
     
