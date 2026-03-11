@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input } from 'antd-mobile';
+import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
 import { useTransactions, deleteTransaction, addTransaction } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
+import { searchByCode, FundSearchResult } from '../services/fundApi';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
@@ -12,6 +13,12 @@ const Transactions: React.FC = () => {
   const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [form] = Form.useForm();
+  
+  // 基金代码搜索相关状态
+  const [codeSearchText, setCodeSearchText] = useState('');
+  const [codeSearchResults, setCodeSearchResults] = useState<FundSearchResult[]>([]);
+  const [isCodeSearching, setIsCodeSearching] = useState(false);
+  const [selectedFund, setSelectedFund] = useState<FundSearchResult | null>(null);
 
   // 加载基金缓存
   useEffect(() => {
@@ -21,6 +28,43 @@ const Transactions: React.FC = () => {
     };
     loadFundCache();
   }, []);
+  
+  // 防抖搜索基金代码
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (codeSearchText.trim().length >= 4) {
+        setIsCodeSearching(true);
+        try {
+          const results = await searchByCode(codeSearchText.trim());
+          setCodeSearchResults(results);
+        } catch (error) {
+          console.error('搜索失败:', error);
+        } finally {
+          setIsCodeSearching(false);
+        }
+      } else {
+        setCodeSearchResults([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [codeSearchText]);
+  
+  // 选择基金
+  const handleSelectFund = (fund: FundSearchResult) => {
+    setSelectedFund(fund);
+    setCodeSearchText(fund.code);
+    setCodeSearchResults([]);
+    form.setFieldsValue({ fundCode: fund.code });
+  };
+  
+  // 重置搜索
+  const resetSearch = () => {
+    setCodeSearchText('');
+    setCodeSearchResults([]);
+    setSelectedFund(null);
+    form.setFieldsValue({ fundCode: undefined });
+  };
 
   // 筛选交易记录
   const filteredTransactions = transactions.filter(t => {
@@ -93,6 +137,7 @@ const Transactions: React.FC = () => {
 
       Toast.show({ content: '添加成功', position: 'bottom' });
       setShowAddDialog(false);
+      resetSearch();
       form.resetFields();
       refresh();
     } catch (error) {
@@ -219,18 +264,94 @@ const Transactions: React.FC = () => {
       <Dialog
         visible={showAddDialog}
         title="添加交易"
+        onClose={() => {
+          setShowAddDialog(false);
+          resetSearch();
+          form.resetFields();
+        }}
         content={
           <Form
             form={form}
             layout="vertical"
             onFinish={handleAddTransaction}
           >
+            {/* 基金代码搜索 */}
             <Form.Item
               name="fundCode"
               label="基金代码"
-              rules={[{ required: true, message: '请输入基金代码' }]}
+              rules={[{ required: true, message: '请选择基金' }]}
+              style={{ marginBottom: 8 }}
             >
-              <Input placeholder="如: 510300（需先在基金列表搜索添加）" />
+              <div>
+                {selectedFund ? (
+                  <div 
+                    style={{ 
+                      padding: '8px 12px', 
+                      background: '#f0f7ff', 
+                      borderRadius: '4px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{selectedFund.name}</div>
+                      <div style={{ fontSize: 12, color: '#666' }}>{selectedFund.code}</div>
+                    </div>
+                    <Button size="small" onClick={resetSearch}>更换</Button>
+                  </div>
+                ) : (
+                  <>
+                    <SearchBar
+                      placeholder="输入基金代码（如：000001）"
+                      value={codeSearchText}
+                      onChange={setCodeSearchText}
+                      style={{ '--background': '#f5f5f5' }}
+                    />
+                    {isCodeSearching && (
+                      <div style={{ textAlign: 'center', padding: '8px' }}>
+                        <SpinLoading style={{ '--size': '16px' }} />
+                      </div>
+                    )}
+                    {!isCodeSearching && codeSearchResults.length > 0 && (
+                      <div 
+                        style={{ 
+                          maxHeight: '150px', 
+                          overflowY: 'auto',
+                          border: '1px solid #f0f0f0',
+                          borderRadius: '4px',
+                          marginTop: '4px'
+                        }}
+                      >
+                        {codeSearchResults.map((fund) => (
+                          <div
+                            key={fund.code}
+                            onClick={() => handleSelectFund(fund)}
+                            style={{
+                              padding: '8px 12px',
+                              borderBottom: '1px solid #f5f5f5',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ fontSize: 14, fontWeight: 500 }}>{fund.name}</div>
+                            <div style={{ fontSize: 12, color: '#999' }}>{fund.code}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!isCodeSearching && codeSearchText.length >= 4 && codeSearchResults.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '8px', color: '#999', fontSize: 12 }}>
+                        未找到匹配代码的基金
+                      </div>
+                    )}
+                    {!isCodeSearching && codeSearchText.length >= 2 && codeSearchText.length < 4 && (
+                      <div style={{ textAlign: 'center', padding: '4px', color: '#999', fontSize: 11 }}>
+                        继续输入以获得更准确的结果...
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </Form.Item>
 
             <Form.Item
@@ -305,6 +426,7 @@ const Transactions: React.FC = () => {
               text: '取消',
               onClick: () => {
                 setShowAddDialog(false);
+                resetSearch();
                 form.resetFields();
               },
             },
@@ -312,8 +434,11 @@ const Transactions: React.FC = () => {
               key: 'confirm',
               text: '确定',
               bold: true,
-              onClick: () => {
-                form.submit();
+              onClick: async () => {
+                const values = await form.validateFields();
+                if (values) {
+                  await handleAddTransaction(values);
+                }
               },
             },
           ],
