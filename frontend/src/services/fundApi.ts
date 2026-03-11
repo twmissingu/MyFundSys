@@ -674,22 +674,23 @@ export async function getFundHistoryWithCache(
       .filter(item => item.date >= cutoffStr)
       .toArray();
     
-    // 检查缓存是否完整（最近3个月数据点应该约60-66个）
-    const minExpectedPoints = Math.floor(days * 0.7); // 考虑周末节假日
+    // 检查缓存是否可用
+    // 阈值：至少20条数据（约1个月），且缓存未过期
+    const minExpectedPoints = 20; // 降低阈值，避免数据不足的基金频繁刷新
     const cacheAge = cachedData.length > 0 
       ? Date.now() - new Date(cachedData[0].updatedAt).getTime()
       : Infinity;
     
-    // 缓存完整且未过期，直接返回
+    // 缓存可用且未过期，直接返回
     if (cachedData.length >= minExpectedPoints && cacheAge < HISTORY_CACHE_VALID_MS) {
-      console.log(`[HistoryCache] ${fundCode} 使用缓存，${cachedData.length}条`);
+      console.log(`[HistoryCache] ${fundCode} 使用缓存，${cachedData.length}条，年龄${Math.round(cacheAge/60000)}分钟`);
       return cachedData
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
         .map(item => ({ date: item.date, nav: item.nav }));
     }
     
-    // 2. 缓存不完整或过期，从API获取
-    console.log(`[HistoryCache] ${fundCode} 缓存缺失，从API获取`);
+    // 2. 缓存不足或过期，从API获取
+    console.log(`[HistoryCache] ${fundCode} 缓存不足(${cachedData.length}条)或过期，从API获取`);
     const apiData = await fetchFundHistoryBatch(fundCode, days);
     
     // 3. 保存到缓存
@@ -729,6 +730,7 @@ export async function batchGetFundHistory(
 
 /**
  * 批量获取历史净值数据（内部函数，分页加载）
+ * 注意：东方财富API每页固定返回20条
  */
 async function fetchFundHistoryBatch(
   fundCode: string, 
@@ -739,15 +741,16 @@ async function fetchFundHistoryBatch(
   let pageIndex = 1;
   const maxPages = 10;
   
-  // 分页加载
+  // 分页加载（每页20条）
   while (allData.length < targetSize && pageIndex <= maxPages) {
-    const pageData = await fetchFundHistory(fundCode, 100, pageIndex, '');
+    const pageData = await fetchFundHistory(fundCode, 20, pageIndex, '');
     
     if (pageData.length === 0) break;
     
     allData = [...allData, ...pageData];
     
-    if (pageData.length < 100) break;
+    // API固定返回20条，如果少于20条说明是最后一页
+    if (pageData.length < 20) break;
     pageIndex++;
   }
   
