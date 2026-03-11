@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Tag, Toast, SpinLoading, Button } from 'antd-mobile';
-import { LeftOutline } from 'antd-mobile-icons';
+import { LeftOutline, StarFill } from 'antd-mobile-icons';
 import { fetchFundNav } from '../services/fundApi';
 import { db } from '../db';
 import { formatMoney } from '../utils';
 import FundHistoryCard from '../components/FundHistoryCard';
 import type { FundApiData } from '../types';
-import type { FundCacheItem } from '../db';
 import './Layout.css';
 
 interface FundInfo {
@@ -24,6 +23,7 @@ const FundDetail: React.FC = () => {
   const [fundInfo, setFundInfo] = useState<FundInfo | null>(null);
   const [fundData, setFundData] = useState<FundApiData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isFavorite, setIsFavorite] = useState(false);
 
   // 解析 hash 获取 fundCode
   useEffect(() => {
@@ -34,27 +34,22 @@ const FundDetail: React.FC = () => {
     }
   }, []);
 
-  // 加载基金信息（从本地缓存）
+  // 加载基金信息和收藏状态
   useEffect(() => {
     const loadFundInfo = async () => {
       if (!fundCode) return;
       
-      // 从缓存数据库查找
-      const cachedFund = await db.fundCache.where('code').equals(fundCode).first();
-      if (cachedFund) {
-        setFundInfo({
-          code: cachedFund.code,
-          name: cachedFund.name,
-          category: cachedFund.category || '未知',
-          pe: cachedFund.pe,
-          pb: cachedFund.pb,
-          dividendYield: cachedFund.dividendYield,
-        });
-        return;
-      }
+      // 检查是否已收藏
+      const favorite = await db.favoriteFunds.where('code').equals(fundCode).first();
+      setIsFavorite(!!favorite);
       
-      // 如果没有缓存，等待API返回数据后设置基本信息
-      // 此时 fundInfo 保持 null，等 API 返回后设置
+      if (favorite) {
+        setFundInfo({
+          code: favorite.code,
+          name: favorite.name,
+          category: favorite.category || '未知',
+        });
+      }
     };
     
     loadFundInfo();
@@ -86,6 +81,33 @@ const FundDetail: React.FC = () => {
       Toast.show({ content: '获取基金数据失败', position: 'bottom' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 切换收藏状态
+  const toggleFavorite = async () => {
+    if (!fundInfo) return;
+    
+    try {
+      if (isFavorite) {
+        // 取消收藏
+        await db.favoriteFunds.where('code').equals(fundCode).delete();
+        setIsFavorite(false);
+        Toast.show({ content: '已取消收藏', position: 'bottom' });
+      } else {
+        // 添加收藏
+        await db.favoriteFunds.add({
+          id: `fav_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          code: fundCode,
+          name: fundInfo.name,
+          category: fundInfo.category,
+          createdAt: new Date().toISOString(),
+        });
+        setIsFavorite(true);
+        Toast.show({ content: '已收藏', position: 'bottom' });
+      }
+    } catch (error) {
+      Toast.show({ content: '操作失败', position: 'bottom' });
     }
   };
 
@@ -143,13 +165,26 @@ const FundDetail: React.FC = () => {
           <LeftOutline /> 返回基金列表
         </Button>
 
-        <div style={{ marginBottom: 16 }}>
-          <Tag color={getCategoryColor(displayFund.category)}>{displayFund.category}</Tag>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <Tag color={getCategoryColor(displayFund.category)}>{displayFund.category}</Tag>
+          </div>
+          <Button
+            fill='none'
+            onClick={toggleFavorite}
+            style={{ padding: '4px 8px' }}
+          >
+            <StarFill style={{ 
+              fontSize: 24, 
+              color: isFavorite ? '#faad14' : '#d9d9d9',
+              transition: 'color 0.2s'
+            }} />
+          </Button>
         </div>
         
         <h1 style={{ fontSize: 24, marginBottom: 8 }}>{displayFund.name}</h1>
-        <p style={{ color: '#666', fontSize: 16, marginBottom: 16 }}>
-          代码: {displayFund.code}
+        <p style={{ color: '#666', fontSize: 14, marginBottom: 16 }}>
+          {displayFund.code}
         </p>
 
         {loading ? (

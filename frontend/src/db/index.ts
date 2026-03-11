@@ -1,7 +1,16 @@
 import Dexie, { Table } from 'dexie';
 import type { Fund, Holding, Transaction, Article, Strategy, BacktestResult } from '../types';
 
-// 基金缓存条目
+// 收藏基金（简化版，只保存基本信息）
+export interface FavoriteFund {
+  id: string;
+  code: string;
+  name: string;
+  category?: string;
+  createdAt: string;
+}
+
+// 基金缓存条目（保留但简化，用于向后兼容）
 export interface FundCacheItem {
   id: string;
   code: string;
@@ -9,8 +18,8 @@ export interface FundCacheItem {
   category?: string;
   nav?: number;
   navDate?: string;
-  dailyChangeRate?: number;  // 日涨跌幅
-  accNav?: number;           // 累计净值
+  dailyChangeRate?: number;
+  accNav?: number;
   pe?: number;
   pb?: number;
   dividendYield?: number;
@@ -23,7 +32,7 @@ export interface FundCacheItem {
   updatedAt: string;
 }
 
-// 基金搜索历史
+// 基金搜索历史（保留但不再使用）
 export interface FundSearchHistory {
   id?: number;
   keyword: string;
@@ -83,14 +92,16 @@ export class FundDatabase extends Dexie {
   feishuConfig!: Table<FeishuConfig>;
   fundCache!: Table<FundCacheItem>;
   fundSearchHistory!: Table<FundSearchHistory>;
+  favoriteFunds!: Table<FavoriteFund>;
 
   constructor() {
     super('FundDatabase');
-    this.version(4).stores({
+    this.version(5).stores({
       funds: 'id, code, name, category, updatedAt',
       holdings: 'id, fundId, fundCode, updatedAt',
       fundCache: 'id, code, name, isHolding, searchCount, lastUpdated',
       fundSearchHistory: '++id, keyword, searchedAt',
+      favoriteFunds: 'id, code, name, createdAt',
       transactions: 'id, fundId, fundCode, type, date, createdAt',
       articles: 'id, title, date, source, category',
       strategies: 'id, name, type, updatedAt',
