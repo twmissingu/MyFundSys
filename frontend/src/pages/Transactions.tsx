@@ -181,15 +181,6 @@ const Transactions: React.FC = () => {
         amount = shares * tradePrice;
       }
 
-      // 计算手续费（简化计算，实际应根据基金费率）
-      // 买入通常无手续费或已包含在净值中，卖出根据持有时间计算
-      let fee = 0;
-      if (values.type === 'sell') {
-        // 简化的手续费计算：持有时间不满7天1.5%，不满30天0.75%，满30天0.5%，满1年0.25%，满2年0
-        // 这里简化处理，实际应从持仓记录计算持有时间
-        fee = amount * 0.005; // 默认0.5%
-      }
-      
       await addTransaction({
         fundId: fund.id,
         fundCode: fund.code,
@@ -199,7 +190,7 @@ const Transactions: React.FC = () => {
         amount: amount,
         price: tradePrice,
         shares: shares,
-        fee: fee,
+        fee: 0,
         remark: values.remark,
       });
 
