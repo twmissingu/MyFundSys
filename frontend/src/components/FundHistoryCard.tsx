@@ -343,14 +343,14 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="macd" name="MACD">
                     {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={(entry.macd ?? 0) >= 0 ? '#ff4d4f' : '#52c41a'} />
+                      <Cell key={`cell-${index}`} fill={(entry.macd ?? 0) >= 0 ? '#ef4444' : '#22c55e'} />
                     ))}
                   </Bar>
                   <Line
                     type="monotone"
                     dataKey="dif"
                     name="DIF"
-                    stroke="#1677ff"
+                    stroke="#3b82f6"
                     strokeWidth={1.5}
                     dot={false}
                   />
@@ -358,7 +358,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                     type="monotone"
                     dataKey="dea"
                     name="DEA"
-                    stroke="#fa8c16"
+                    stroke="#f59e0b"
                     strokeWidth={1.5}
                     dot={false}
                   />
@@ -388,9 +388,9 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                     formatter={(value: number) => value?.toFixed(2)}
                   />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" dataKey="k" name="K" stroke="#1677ff" strokeWidth={1.5} dot={false} />
-                  <Line type="monotone" dataKey="d" name="D" stroke="#fa8c16" strokeWidth={1.5} dot={false} />
-                  <Line type="monotone" dataKey="j" name="J" stroke="#52c41a" strokeWidth={1.5} dot={false} />
+                  <Line type="monotone" dataKey="k" name="K" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
+                  <Line type="monotone" dataKey="d" name="D" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
+                  <Line type="monotone" dataKey="j" name="J" stroke="#a855f7" strokeWidth={1.5} dot={false} />
                   <Line type="monotone" dataKey={() => 80} stroke="#ff4d4f" strokeDasharray="3 3" strokeWidth={1} dot={false} legendType="none" />
                   <Line type="monotone" dataKey={() => 20} stroke="#52c41a" strokeDasharray="3 3" strokeWidth={1} dot={false} legendType="none" />
                 </LineChart>
