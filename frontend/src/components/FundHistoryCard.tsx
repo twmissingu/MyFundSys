@@ -21,6 +21,8 @@ import {
   calculateMA,
   formatDate,
   TimeRange,
+  getMACDParams,
+  getKDJParams,
 } from '../utils/technicalIndicators';
 import './FundHistoryCard.css';
 
@@ -99,7 +101,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
     return () => { isMounted = false; };
   }, [fundCode, timeRange]);
 
-  // 计算技术指标（直接使用API返回的数据，已按时间区间筛选）
+  // 计算技术指标（根据时间范围使用动态参数）
   const chartData = useMemo(() => {
     if (historyData.length === 0) return [];
     
@@ -107,8 +109,15 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
     const ma5 = calculateMA(points, 5);
     const ma10 = calculateMA(points, 10);
     const ma20 = calculateMA(points, 20);
-    const macd = calculateMACD(points);
-    const kdj = calculateKDJ(points);
+    
+    // 根据时间范围获取动态参数
+    const macdParams = getMACDParams(timeRange);
+    const kdjParams = getKDJParams(timeRange);
+    
+    console.log('[Indicators] MACD params:', macdParams.label, 'KDJ params:', kdjParams.label);
+    
+    const macd = calculateMACD(points, macdParams.fastPeriod, macdParams.slowPeriod, macdParams.signalPeriod);
+    const kdj = calculateKDJ(points, kdjParams.n, kdjParams.m1, kdjParams.m2);
     
     return points.map((p, i) => ({
       date: p.date,
@@ -124,7 +133,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
       d: kdj[i]?.d,
       j: kdj[i]?.j,
     }));
-  }, [historyData]);
+  }, [historyData, timeRange]);
 
   // 如果没有计算数据但有原始数据，创建简化版图表数据
   const displayData = useMemo(() => {
@@ -386,10 +395,13 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
           </div>
         )}
 
-        {/* 数据不足提示 */}
-        {!hasIndicators && (
-          <div className="indicator-tips">
-            <p>净值走势：{historyData.length > 26 ? 'MA5（5日均线）、MA10（10日均线）' : '原始净值数据（数据点不足无法计算技术指标）'}</p>
+        {/* 指标参数说明 */}
+        {hasIndicators && (
+          <div className="indicator-tips" style={{ marginTop: 8 }}>
+            <p style={{ fontSize: 11, color: '#999' }}>
+              当前参数：MACD {getMACDParams(timeRange).label} / KDJ {getKDJParams(timeRange).label}
+              {timeRange === '1m' && ' · 短周期使用灵敏参数'}
+            </p>
           </div>
         )}
       </div>

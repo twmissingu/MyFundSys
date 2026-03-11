@@ -212,3 +212,65 @@ export function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
+
+/**
+ * MACD参数配置
+ */
+export interface MACDParams {
+  fastPeriod: number;
+  slowPeriod: number;
+  signalPeriod: number;
+  label: string;
+}
+
+/**
+ * KDJ参数配置
+ */
+export interface KDJParams {
+  n: number;
+  m1: number;
+  m2: number;
+  label: string;
+}
+
+/**
+ * 根据时间范围获取MACD参数
+ * 短周期使用更灵敏的参数
+ */
+export function getMACDParams(range: TimeRange): MACDParams {
+  switch (range) {
+    case '1m':
+      // 1个月：使用短周期参数 (6, 13, 5)，只需13个数据点
+      return { fastPeriod: 6, slowPeriod: 13, signalPeriod: 5, label: '短线(6,13,5)' };
+    case '3m':
+      // 3个月：使用平衡参数 (8, 17, 7)，只需17个数据点
+      return { fastPeriod: 8, slowPeriod: 17, signalPeriod: 7, label: '平衡(8,17,7)' };
+    case '6m':
+    case '1y':
+    case 'all':
+    default:
+      // 长期：使用标准参数 (12, 26, 9)，需要26个数据点
+      return { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, label: '标准(12,26,9)' };
+  }
+}
+
+/**
+ * 根据时间范围获取KDJ参数
+ * 短周期使用更灵敏的参数
+ */
+export function getKDJParams(range: TimeRange): KDJParams {
+  switch (range) {
+    case '1m':
+      // 1个月：使用短周期参数 (5, 3, 3)，只需5个数据点
+      return { n: 5, m1: 3, m2: 3, label: '短线(5,3,3)' };
+    case '3m':
+      // 3个月：使用平衡参数 (7, 3, 3)，只需7个数据点
+      return { n: 7, m1: 3, m2: 3, label: '平衡(7,3,3)' };
+    case '6m':
+    case '1y':
+    case 'all':
+    default:
+      // 长期：使用标准参数 (9, 3, 3)，需要9个数据点
+      return { n: 9, m1: 3, m2: 3, label: '标准(9,3,3)' };
+  }
+}
