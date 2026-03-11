@@ -215,29 +215,14 @@ export async function searchByCode(code: string): Promise<FundSearchResult[]> {
   const trimmedCode = code.trim();
   
   try {
-    // 1. 先从本地缓存搜索
-    const localResults = await searchLocalByCode(trimmedCode);
-    
-    // 2. 如果本地有结果，直接返回
-    if (localResults.length > 0) {
-      await updateSearchCount(localResults.map(r => r.code));
-      return localResults;
-    }
-    
-    // 3. 本地没有，从东方财富API搜索
+    // 直接从东方财富API搜索（不再使用本地缓存优先）
     const apiResults = await searchFromEastMoney(trimmedCode);
     // 过滤只保留代码匹配的结果
     const filteredResults = apiResults.filter(f => 
       f.code.toLowerCase().includes(trimmedCode.toLowerCase())
     );
     
-    // 4. 保存到本地缓存
-    if (filteredResults.length > 0) {
-      await saveFundCache(filteredResults);
-      await saveSearchHistory(`code:${trimmedCode}`, filteredResults.length);
-    }
-    
-    return filteredResults;
+    return filteredResults.slice(0, 10);
   } catch (error) {
     console.error('按代码搜索基金失败:', error);
     return [];
@@ -256,29 +241,14 @@ export async function searchByName(name: string): Promise<FundSearchResult[]> {
   const trimmedName = name.trim();
   
   try {
-    // 1. 先从本地缓存搜索
-    const localResults = await searchLocalByName(trimmedName);
-    
-    // 2. 如果本地有结果，直接返回
-    if (localResults.length > 0) {
-      await updateSearchCount(localResults.map(r => r.code));
-      return localResults;
-    }
-    
-    // 3. 本地没有，从东方财富API搜索
+    // 直接从东方财富API搜索（不再使用本地缓存优先）
     const apiResults = await searchFromEastMoney(trimmedName);
     // 过滤只保留名称匹配的结果
     const filteredResults = apiResults.filter(f => 
       f.name.toLowerCase().includes(trimmedName.toLowerCase())
     );
     
-    // 4. 保存到本地缓存
-    if (filteredResults.length > 0) {
-      await saveFundCache(filteredResults);
-      await saveSearchHistory(`name:${trimmedName}`, filteredResults.length);
-    }
-    
-    return filteredResults;
+    return filteredResults.slice(0, 10);
   } catch (error) {
     console.error('按名称搜索基金失败:', error);
     return [];
