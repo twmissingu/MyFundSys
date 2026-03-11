@@ -77,11 +77,13 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
         pageIndex++;
       }
       
-      // 按时间倒序排列（最新的在前）
-      allData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      // API返回的数据是倒序（最新在前），需要按时间正序排列（最旧在前）以便图表显示
+      allData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
-      // 截取目标数量
-      const finalData = allData.slice(0, targetSize);
+      // 截取目标数量（从最新的往前数）
+      const finalData = allData.length <= targetSize 
+        ? allData 
+        : allData.slice(allData.length - targetSize);
       
       console.log('[HistoryCard] Loaded', finalData.length, 'records from', pageIndex, 'pages');
       
@@ -134,7 +136,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
         ma5: undefined, ma10: undefined, ma20: undefined,
         dif: undefined, dea: undefined, macd: undefined,
         k: undefined, d: undefined, j: undefined,
-      })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      }));
     }
     return [];
   }, [chartData, historyData]);
