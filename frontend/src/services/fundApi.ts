@@ -617,14 +617,16 @@ export interface FundHistoryData {
  * @param fundCode 基金代码
  * @param pageSize 获取条数（默认20）
  * @param pageIndex 页码（从1开始）
+ * @param startDate 起始日期（YYYY-MM-DD格式，可选）
  */
 export async function fetchFundHistory(
   fundCode: string, 
   pageSize: number = 20,
-  pageIndex: number = 1
+  pageIndex: number = 1,
+  startDate: string = ''
 ): Promise<FundHistoryData[]> {
   try {
-    const url = `${API_BASE}/api/history/f10/lsjz?fundCode=${fundCode}&pageIndex=${pageIndex}&pageSize=${pageSize}&startDate=&endDate=&_=${Date.now()}`;
+    const url = `${API_BASE}/api/history/f10/lsjz?fundCode=${fundCode}&pageIndex=${pageIndex}&pageSize=${pageSize}&startDate=${startDate}&endDate=&_=${Date.now()}`;
     console.log('[API] fetchFundHistory URL:', url);
     
     const response = await fetch(url);

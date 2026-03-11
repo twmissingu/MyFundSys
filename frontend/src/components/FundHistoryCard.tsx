@@ -34,16 +34,21 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
   const [timeRange, setTimeRange] = useState<TimeRange>('3m');
   const [activeTab, setActiveTab] = useState('nav');
 
-  // 根据时间区间计算需要的数据条数
-  const getPageSize = (range: TimeRange): number => {
-    const map: Record<TimeRange, number> = {
-      '1m': 30,    // 约1个月
-      '3m': 90,    // 约3个月
-      '6m': 180,   // 约6个月
-      '1y': 365,   // 约1年
-      'all': 9999, // 全部（API会返回所有可用数据）
+  // 根据时间区间计算起始日期（自然日）
+  const getStartDate = (range: TimeRange): string | null => {
+    if (range === 'all') return null; // 全部数据，不限制起始日期
+    
+    const today = new Date();
+    const map: Record<Exclude<TimeRange, 'all'>, number> = {
+      '1m': 30,    // 30个自然日
+      '3m': 90,    // 90个自然日
+      '6m': 180,   // 180个自然日
+      '1y': 365,   // 365个自然日
     };
-    return map[range];
+    
+    const start = new Date(today);
+    start.setDate(start.getDate() - map[range]);
+    return start.toISOString().split('T')[0]; // YYYY-MM-DD格式
   };
 
   // 加载历史数据（根据时间区间，支持分页加载）
@@ -52,17 +57,17 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
     
     const loadHistory = async () => {
       setLoading(true);
-      const targetSize = getPageSize(timeRange);
-      console.log('[HistoryCard] Loading', timeRange, '- target', targetSize, 'records');
+      const startDate = getStartDate(timeRange);
+      console.log('[HistoryCard] Loading', timeRange, '- from', startDate || 'all');
       
       let allData: FundHistoryData[] = [];
       let pageIndex = 1;
       const maxPages = 50; // 最多加载50页（约1000条，每页20条）
       
-      // 分页加载，直到获取足够数据或没有更多数据
+      // 分页加载，直到没有更多数据
       // 注意：东方财富API每页固定返回20条，无视pageSize参数
-      while (allData.length < targetSize && pageIndex <= maxPages) {
-        const pageData = await fetchFundHistory(fundCode, 20, pageIndex);
+      while (pageIndex <= maxPages) {
+        const pageData = await fetchFundHistory(fundCode, 20, pageIndex, startDate || '');
         
         if (pageData.length === 0) {
           break; // 没有更多数据
@@ -81,15 +86,10 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
       // API返回的数据是倒序（最新在前），需要按时间正序排列（最旧在前）以便图表显示
       allData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
-      // 截取目标数量（从最新的往前数）
-      const finalData = allData.length <= targetSize 
-        ? allData 
-        : allData.slice(allData.length - targetSize);
-      
-      console.log('[HistoryCard] Loaded', finalData.length, 'records from', pageIndex, 'pages');
+      console.log('[HistoryCard] Loaded', allData.length, 'records from', pageIndex, 'pages');
       
       if (isMounted) {
-        setHistoryData(finalData);
+        setHistoryData(allData);
         setLoading(false);
       }
     };
