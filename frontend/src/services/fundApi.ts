@@ -214,17 +214,31 @@ export async function searchByCode(code: string): Promise<FundSearchResult[]> {
   
   const trimmedCode = code.trim();
   
+  // 1. 先尝试从本地缓存搜索
+  const localResults = await searchLocalByCode(trimmedCode);
+  
+  // 2. 本地有结果，先返回本地结果
+  if (localResults.length > 0) {
+    return localResults;
+  }
+  
+  // 3. 本地没有，尝试从API搜索
   try {
-    // 直接从东方财富API搜索（不再使用本地缓存优先）
     const apiResults = await searchFromEastMoney(trimmedCode);
     // 过滤只保留代码前缀匹配的结果（如输入000，匹配000001，不匹配100000）
     const filteredResults = apiResults.filter(f => 
       f.code.toLowerCase().startsWith(trimmedCode.toLowerCase())
     );
     
+    // 保存到本地缓存
+    if (filteredResults.length > 0) {
+      await saveFundCache(filteredResults);
+    }
+    
     return filteredResults.slice(0, 10);
   } catch (error) {
-    console.error('按代码搜索基金失败:', error);
+    console.error('[Search] API搜索失败，已返回本地缓存结果:', error);
+    // API失败时返回空（本地已经搜过了）
     return [];
   }
 }
@@ -240,17 +254,31 @@ export async function searchByName(name: string): Promise<FundSearchResult[]> {
   
   const trimmedName = name.trim();
   
+  // 1. 先尝试从本地缓存搜索
+  const localResults = await searchLocalByName(trimmedName);
+  
+  // 2. 本地有结果，先返回本地结果
+  if (localResults.length > 0) {
+    return localResults;
+  }
+  
+  // 3. 本地没有，尝试从API搜索
   try {
-    // 直接从东方财富API搜索（不再使用本地缓存优先）
     const apiResults = await searchFromEastMoney(trimmedName);
     // 过滤只保留名称匹配的结果
     const filteredResults = apiResults.filter(f => 
       f.name.toLowerCase().includes(trimmedName.toLowerCase())
     );
     
+    // 保存到本地缓存
+    if (filteredResults.length > 0) {
+      await saveFundCache(filteredResults);
+    }
+    
     return filteredResults.slice(0, 10);
   } catch (error) {
-    console.error('按名称搜索基金失败:', error);
+    console.error('[Search] API搜索失败，已返回本地缓存结果:', error);
+    // API失败时返回空（本地已经搜过了）
     return [];
   }
 }

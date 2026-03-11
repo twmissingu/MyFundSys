@@ -52,7 +52,7 @@ FUND_NAMES = {
     '511260': '十年国债ETF',
 }
 
-@app.route('/api/funds', methods=['GET'])
+@app.route('/funds', methods=['GET'])
 def get_funds():
     """获取基金列表"""
     funds = []
@@ -65,7 +65,7 @@ def get_funds():
         })
     return jsonify(funds)
 
-@app.route('/api/funds/<code>', methods=['GET'])
+@app.route('/funds/<code>', methods=['GET'])
 def get_fund_detail(code):
     """获取基金详情"""
     if code not in FUND_NAMES:
@@ -85,7 +85,7 @@ def get_fund_detail(code):
         'category': get_category(code),
     })
 
-@app.route('/api/valuation', methods=['GET'])
+@app.route('/valuation', methods=['GET'])
 def get_market_valuation():
     """获取市场估值"""
     # 模拟估值数据
@@ -114,7 +114,7 @@ def get_market_valuation():
         'status_text': status_text,
     })
 
-@app.route('/api/history/<code>', methods=['GET'])
+@app.route('/history/<code>', methods=['GET'])
 def get_fund_history(code):
     """获取基金历史数据"""
     days = request.args.get('days', 252, type=int)
@@ -137,7 +137,7 @@ def get_fund_history(code):
     
     return jsonify(history)
 
-@app.route('/api/backtest', methods=['POST'])
+@app.route('/backtest', methods=['POST'])
 def run_backtest():
     """运行策略回测"""
     data = request.json
@@ -165,7 +165,7 @@ def run_backtest():
         'trades': trades,
     })
 
-@app.route('/api/articles', methods=['GET'])
+@app.route('/articles', methods=['GET'])
 def get_articles():
     """获取文章列表"""
     # 示例文章数据
@@ -188,6 +188,36 @@ def get_articles():
         },
     ]
     return jsonify(articles)
+
+@app.route('/eastmoney/<path:path>', methods=['GET'])
+def proxy_eastmoney(path):
+    """代理东方财富API请求"""
+    try:
+        target_url = f'https://fundmobapi.eastmoney.com/{path}'
+        params = request.args.to_dict()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://fund.eastmoney.com/',
+        }
+        response = requests.get(target_url, params=params, headers=headers, timeout=10)
+        return response.json(), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/suggest/api/suggest/get', methods=['GET'])
+def proxy_eastmoney_search():
+    """代理东方财富搜索API"""
+    try:
+        target_url = 'https://searchapi.eastmoney.com/api/suggest/get'
+        params = request.args.to_dict()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://fund.eastmoney.com/',
+        }
+        response = requests.get(target_url, params=params, headers=headers, timeout=10)
+        return response.json(), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def get_category(code: str) -> str:
     """获取基金分类"""
