@@ -236,7 +236,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
           fontSize: 12,
           color: '#d46b08'
         }}>
-          ⚠️ 数据点不足，仅显示原始净值走势（技术指标需要至少26个交易日数据）
+          ⚠️ 数据点不足（当前{historyData.length}个），MACD至少需要{getMACDParams(timeRange).slowPeriod + getMACDParams(timeRange).signalPeriod}个交易日
         </div>
       )}
 
