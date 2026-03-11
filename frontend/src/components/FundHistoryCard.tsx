@@ -151,8 +151,12 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
     return [];
   }, [chartData, historyData]);
 
-  // 是否有技术指标数据
-  const hasIndicators = chartData.length > 0 && chartData[0]?.dif !== undefined;
+  // 分别检查MACD和KDJ是否有数据
+  const hasMACD = chartData.length > 0 && chartData[chartData.length - 1]?.dif !== undefined;
+  const hasKDJ = chartData.length > 0 && chartData[chartData.length - 1]?.k !== undefined;
+  const hasIndicators = hasMACD || hasKDJ;
+  
+  console.log('[Debug] Data points:', historyData.length, 'hasMACD:', hasMACD, 'hasKDJ:', hasKDJ);
 
   // 时间区间选项
   const timeRangeOptions: { key: TimeRange; label: string }[] = [
@@ -292,33 +296,33 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                   fill="#e6f4ff"
                   strokeWidth={2}
                 />
-                {hasIndicators && (
-                  <>
-                    <Line
-                      type="monotone"
-                      dataKey="ma5"
-                      name="MA5"
-                      stroke="#faad14"
-                      strokeWidth={1.5}
-                      dot={false}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="ma10"
-                      name="MA10"
-                      stroke="#722ed1"
-                      strokeWidth={1.5}
-                      dot={false}
-                    />
-                  </>
+                {historyData.length >= 5 && (
+                  <Line
+                    type="monotone"
+                    dataKey="ma5"
+                    name="MA5"
+                    stroke="#faad14"
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
+                )}
+                {historyData.length >= 10 && (
+                  <Line
+                    type="monotone"
+                    dataKey="ma10"
+                    name="MA10"
+                    stroke="#722ed1"
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
                 )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* MACD - 只在有指标数据时显示 */}
-        {hasIndicators && (
+        {/* MACD - 只在有MACD数据时显示 */}
+        {hasMACD && (
           <div className="chart-section">
             <div className="chart-title">MACD <span className="chart-subtitle">DIF上穿DEA买入，下穿卖出</span></div>
             <div className="chart-container">
@@ -364,8 +368,8 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
           </div>
         )}
 
-        {/* KDJ - 只在有指标数据时显示 */}
-        {hasIndicators && (
+        {/* KDJ - 只在有KDJ数据时显示 */}
+        {hasKDJ && (
           <div className="chart-section">
             <div className="chart-title">KDJ <span className="chart-subtitle">K&gt;80超买，K&lt;20超卖</span></div>
             <div className="chart-container">
@@ -396,10 +400,13 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
         )}
 
         {/* 指标参数说明 */}
-        {hasIndicators && (
+        {(hasMACD || hasKDJ) && (
           <div className="indicator-tips" style={{ marginTop: 8 }}>
             <p style={{ fontSize: 11, color: '#999' }}>
-              当前参数：MACD {getMACDParams(timeRange).label} / KDJ {getKDJParams(timeRange).label}
+              当前参数：
+              {hasMACD && `MACD ${getMACDParams(timeRange).label}`}
+              {hasMACD && hasKDJ && ' / '}
+              {hasKDJ && `KDJ ${getKDJParams(timeRange).label}`}
               {timeRange === '1m' && ' · 短周期使用灵敏参数'}
             </p>
           </div>
