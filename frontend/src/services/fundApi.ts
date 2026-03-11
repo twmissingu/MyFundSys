@@ -381,10 +381,10 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
     if (result && result.QuotationCodeTable && result.QuotationCodeTable.Data) {
       const data = result.QuotationCodeTable.Data;
       
-      // 过滤只保留基金（Classify为OTCFUND或FUND）
+      // 过滤只保留基金（Classify为OTCFUND、FUND或Fund）
       return data
         .filter((item: any) => item.Code && item.Name)
-        .filter((item: any) => item.Classify === 'OTCFUND' || item.Classify === 'FUND')
+        .filter((item: any) => item.Classify === 'OTCFUND' || item.Classify === 'FUND' || item.Classify === 'Fund')
         .map((item: any) => ({
           code: item.Code,
           name: item.Name,
