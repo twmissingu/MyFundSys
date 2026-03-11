@@ -14,10 +14,10 @@ const FundList: React.FC = () => {
   const [isCodeSearching, setIsCodeSearching] = useState(false);
   const [isNameSearching, setIsNameSearching] = useState(false);
 
-  // 防抖搜索（代码）
+  // 防抖搜索（代码）- 至少4位才能获得准确结果
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (codeSearchText.trim().length >= 2) {
+      if (codeSearchText.trim().length >= 4) {
         setIsCodeSearching(true);
         try {
           const results = await searchByCode(codeSearchText.trim());
@@ -126,7 +126,12 @@ const FundList: React.FC = () => {
               {renderSearchResults(codeSearchResults)}
             </div>
           )}
-          {!isCodeSearching && codeSearchText.length >= 2 && codeSearchResults.length === 0 && (
+          {!isCodeSearching && codeSearchText.length >= 2 && codeSearchText.length < 4 && (
+            <div style={{ textAlign: 'center', padding: '8px', color: '#999', fontSize: 12 }}>
+              继续输入以获得更准确的结果...
+            </div>
+          )}
+          {!isCodeSearching && codeSearchText.length >= 4 && codeSearchResults.length === 0 && (
             <div style={{ textAlign: 'center', padding: '12px', color: '#999', fontSize: 14 }}>
               未找到匹配代码的基金
             </div>
