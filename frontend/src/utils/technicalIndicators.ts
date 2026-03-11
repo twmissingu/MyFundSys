@@ -240,12 +240,14 @@ export interface KDJParams {
 export function getMACDParams(range: TimeRange): MACDParams {
   switch (range) {
     case '1m':
-      // 1个月：使用短周期参数 (6, 13, 5)，只需13个数据点
-      return { fastPeriod: 6, slowPeriod: 13, signalPeriod: 5, label: '短线(6,13,5)' };
+      // 1个月：使用超短周期参数 (5, 10, 5)，只需10个数据点（约1个月有20个交易日，足够）
+      return { fastPeriod: 5, slowPeriod: 10, signalPeriod: 5, label: '超短(5,10,5)' };
     case '3m':
-      // 3个月：使用平衡参数 (8, 17, 7)，只需17个数据点
-      return { fastPeriod: 8, slowPeriod: 17, signalPeriod: 7, label: '平衡(8,17,7)' };
+      // 3个月：使用短周期参数 (6, 13, 5)，只需13个数据点
+      return { fastPeriod: 6, slowPeriod: 13, signalPeriod: 5, label: '短线(6,13,5)' };
     case '6m':
+      // 6个月：使用平衡参数 (8, 17, 7)，只需17个数据点
+      return { fastPeriod: 8, slowPeriod: 17, signalPeriod: 7, label: '平衡(8,17,7)' };
     case '1y':
     case 'all':
     default:
@@ -261,12 +263,14 @@ export function getMACDParams(range: TimeRange): MACDParams {
 export function getKDJParams(range: TimeRange): KDJParams {
   switch (range) {
     case '1m':
-      // 1个月：使用短周期参数 (5, 3, 3)，只需5个数据点
-      return { n: 5, m1: 3, m2: 3, label: '短线(5,3,3)' };
+      // 1个月：使用超短周期参数 (3, 3, 3)，只需3个数据点
+      return { n: 3, m1: 3, m2: 3, label: '超短(3,3,3)' };
     case '3m':
-      // 3个月：使用平衡参数 (7, 3, 3)，只需7个数据点
-      return { n: 7, m1: 3, m2: 3, label: '平衡(7,3,3)' };
+      // 3个月：使用短周期参数 (5, 3, 3)，只需5个数据点
+      return { n: 5, m1: 3, m2: 3, label: '短线(5,3,3)' };
     case '6m':
+      // 6个月：使用平衡参数 (7, 3, 3)，只需7个数据点
+      return { n: 7, m1: 3, m2: 3, label: '平衡(7,3,3)' };
     case '1y':
     case 'all':
     default:
