@@ -73,23 +73,36 @@
   color: #333;
 }
 
-/* 图表容器 */
-.chart-container {
-  margin-top: 8px;
+/* 图表纵向布局 */
+.charts-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-/* 图表标签页 */
-.chart-tabs .adm-tabs-header {
-  border-bottom: 1px solid #f0f0f0;
+.chart-section {
+  background: #fafafa;
+  border-radius: 8px;
+  padding: 10px;
 }
 
-.chart-tabs .adm-tabs-tab {
+.chart-title {
   font-size: 14px;
-  padding: 10px 0;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 6px;
+  padding-left: 4px;
 }
 
-.chart-tabs .adm-tabs-tab-active {
-  font-weight: 500;
+.chart-subtitle {
+  font-size: 11px;
+  color: #999;
+  font-weight: normal;
+  margin-left: 8px;
+}
+
+.chart-container {
+  margin-top: 4px;
 }
 
 /* 指标说明 */

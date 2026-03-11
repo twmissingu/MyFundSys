@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Tabs, SpinLoading } from 'antd-mobile';
+import { Card, SpinLoading } from 'antd-mobile';
 import {
   LineChart,
   Line,
@@ -32,7 +32,7 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
   const [historyData, setHistoryData] = useState<FundHistoryData[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('3m');
-  const [activeTab, setActiveTab] = useState('nav');
+
 
   // 根据时间区间计算起始日期（自然日）
   const getStartDate = (range: TimeRange): string | null => {
@@ -249,34 +249,32 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
         </div>
       )}
 
-      {/* 图表标签页 */}
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        className="chart-tabs"
-      >
+      {/* 图表纵向排列 */}
+      <div className="charts-vertical">
+        
         {/* 净值走势 */}
-        <Tabs.Tab title="净值走势" key="nav">
+        <div className="chart-section">
+          <div className="chart-title">净值走势</div>
           <div className="chart-container">
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={200}>
               <ComposedChart data={displayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis 
                   dataKey="dateStr" 
-                  tick={{ fontSize: 11 }}
+                  tick={{ fontSize: 10 }}
                   interval="preserveStartEnd"
-                  minTickGap={20}
+                  minTickGap={30}
                 />
                 <YAxis 
                   domain={['auto', 'auto']} 
-                  tick={{ fontSize: 11 }}
-                  width={50}
+                  tick={{ fontSize: 10 }}
+                  width={45}
                 />
                 <Tooltip 
-                  contentStyle={{ fontSize: 12 }}
+                  contentStyle={{ fontSize: 11 }}
                   formatter={(value: number) => value?.toFixed(4)}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Area
                   type="monotone"
                   dataKey="nav"
@@ -308,27 +306,28 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-        </Tabs.Tab>
+        </div>
 
         {/* MACD - 只在有指标数据时显示 */}
         {hasIndicators && (
-          <Tabs.Tab title="MACD" key="macd">
+          <div className="chart-section">
+            <div className="chart-title">MACD <span className="chart-subtitle">DIF上穿DEA买入，下穿卖出</span></div>
             <div className="chart-container">
-              <ResponsiveContainer width="100%" height={250}>
-                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <ResponsiveContainer width="100%" height={160}>
+                <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="dateStr" 
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 10 }}
                     interval="preserveStartEnd"
-                    minTickGap={20}
+                    minTickGap={30}
                   />
-                  <YAxis tick={{ fontSize: 11 }} width={50} />
+                  <YAxis tick={{ fontSize: 10 }} width={45} />
                   <Tooltip 
-                    contentStyle={{ fontSize: 12 }}
+                    contentStyle={{ fontSize: 11 }}
                     formatter={(value: number) => value?.toFixed(4)}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="macd" name="MACD">
                     {chartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={(entry.macd ?? 0) >= 0 ? '#ff4d4f' : '#52c41a'} />
@@ -353,28 +352,29 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-          </Tabs.Tab>
+          </div>
         )}
 
         {/* KDJ - 只在有指标数据时显示 */}
         {hasIndicators && (
-          <Tabs.Tab title="KDJ" key="kdj">
+          <div className="chart-section">
+            <div className="chart-title">KDJ <span className="chart-subtitle">K&gt;80超买，K&lt;20超卖</span></div>
             <div className="chart-container">
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="dateStr" 
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 10 }}
                     interval="preserveStartEnd"
-                    minTickGap={20}
+                    minTickGap={30}
                   />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={50} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={45} />
                   <Tooltip 
-                    contentStyle={{ fontSize: 12 }}
+                    contentStyle={{ fontSize: 11 }}
                     formatter={(value: number) => value?.toFixed(2)}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Line type="monotone" dataKey="k" name="K" stroke="#1677ff" strokeWidth={1.5} dot={false} />
                   <Line type="monotone" dataKey="d" name="D" stroke="#fa8c16" strokeWidth={1.5} dot={false} />
                   <Line type="monotone" dataKey="j" name="J" stroke="#52c41a" strokeWidth={1.5} dot={false} />
@@ -383,20 +383,14 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </Tabs.Tab>
+          </div>
         )}
-      </Tabs>
 
-      {/* 指标说明 */}
-      <div className="indicator-tips">
-        {activeTab === 'macd' && hasIndicators && (
-          <p>MACD：DIF上穿DEA为买入信号，下穿为卖出信号</p>
-        )}
-        {activeTab === 'kdj' && hasIndicators && (
-          <p>KDJ：K&gt;80超买，K&lt;20超卖；J值&gt;100严重超买，&lt;0严重超卖</p>
-        )}
-        {(activeTab === 'nav' || !hasIndicators) && (
-          <p>净值走势：{hasIndicators ? 'MA5（5日均线）、MA10（10日均线）' : '原始净值数据'}</p>
+        {/* 数据不足提示 */}
+        {!hasIndicators && (
+          <div className="indicator-tips">
+            <p>净值走势：{historyData.length > 26 ? 'MA5（5日均线）、MA10（10日均线）' : '原始净值数据（数据点不足无法计算技术指标）'}</p>
+          </div>
         )}
       </div>
     </Card>
