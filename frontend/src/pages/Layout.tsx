@@ -37,16 +37,16 @@ const Layout: React.FC = () => {
       if (hash.startsWith('fund/')) {
         const fundCode = hash.replace('fund/', '');
         setCurrentView({ type: 'fundDetail', params: { fundCode } });
-      } else if (hash === 'holdings') {
+      } else if (hash === 'holdings' || hash.startsWith('holdings?')) {
         setActiveKey('holdings');
         setCurrentView({ type: 'tab' });
-      } else if (hash === 'transactions') {
+      } else if (hash === 'transactions' || hash.startsWith('transactions?')) {
         setActiveKey('transactions');
         setCurrentView({ type: 'tab' });
-      } else if (hash === 'funds') {
+      } else if (hash === 'funds' || hash.startsWith('funds?')) {
         setActiveKey('funds');
         setCurrentView({ type: 'tab' });
-      } else if (hash === 'articles') {
+      } else if (hash === 'articles' || hash.startsWith('articles?')) {
         setActiveKey('articles');
         setCurrentView({ type: 'tab' });
       } else {

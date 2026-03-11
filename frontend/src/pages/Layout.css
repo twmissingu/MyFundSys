@@ -222,3 +222,8 @@
   opacity: 0.9;
   margin-top: 4px;
 }
+
+/* Picker 滚轮 touch-action 修复 */
+.adm-picker-view-column-wheel {
+  touch-action: none;
+}

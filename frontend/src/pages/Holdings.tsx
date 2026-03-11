@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Card, List, Toast, SwipeAction, Tabs, Tag, Dialog } from 'antd-mobile';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+
 import { useHoldings, deleteHolding } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import { formatMoney, formatPercent } from '../utils';
@@ -12,6 +13,7 @@ const Holdings: React.FC = () => {
   const { holdings, refresh } = useHoldings();
   const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
   const [activeTab, setActiveTab] = useState('list');
+
 
   // 加载基金缓存
   useEffect(() => {
@@ -143,35 +145,37 @@ const Holdings: React.FC = () => {
                   },
                 ]}
               >
-                <List.Item
-                  title={<div style={{ fontSize: 15, fontWeight: 500 }}>{holding.fundName}</div>}
-                  description={
-                    <div style={{ fontSize: 13, color: '#999' }}>
-                      {holding.fundCode} | 成本: {formatMoney(holding.avgCost)}
-                    </div>
-                  }
-                  extra={
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 15, fontWeight: 500 }}>
-                        {formatMoney(holding.currentValue || holding.totalCost)}
+                <div onClick={() => window.location.hash = `#transactions?fundCode=${holding.fundCode}`}>
+                  <List.Item
+                    title={<div style={{ fontSize: 15, fontWeight: 500 }}>{holding.fundName}</div>}
+                    description={
+                      <div style={{ fontSize: 13, color: '#999' }}>
+                        {holding.fundCode} | 成本: {formatMoney(holding.avgCost)}
                       </div>
-                      <div 
-                        style={{ 
-                          fontSize: 13, 
-                          color: profit >= 0 ? '#ff4d4f' : '#52c41a' 
-                        }}
-                      >
-                        {profit >= 0 ? '+' : ''}{formatPercent(profitRate)}
+                    }
+                    extra={
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 15, fontWeight: 500 }}>
+                          {formatMoney(holding.currentValue || holding.totalCost)}
+                        </div>
+                        <div 
+                          style={{ 
+                            fontSize: 13, 
+                            color: profit >= 0 ? '#ff4d4f' : '#52c41a' 
+                          }}
+                        >
+                          {profit >= 0 ? '+' : ''}{formatPercent(profitRate)}
+                        </div>
+                      </div>
+                    }
+                  >
+                    <div style={{ padding: '8px 0' }}>
+                      <div style={{ fontSize: 13, color: '#666' }}>
+                        份额: {holding.shares.toFixed(2)} | 市值: {formatMoney(holding.currentValue || holding.totalCost)}
                       </div>
                     </div>
-                  }
-                >
-                  <div style={{ padding: '8px 0' }}>
-                    <div style={{ fontSize: 13, color: '#666' }}>
-                      份额: {holding.shares.toFixed(2)} | 市值: {formatMoney(holding.currentValue || holding.totalCost)}
-                    </div>
-                  </div>
-                </List.Item>
+                  </List.Item>
+                </div>
               </SwipeAction>
             );
           })}

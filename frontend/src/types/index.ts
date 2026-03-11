@@ -37,7 +37,8 @@ export interface Transaction {
   fundCode: string;
   fundName: string;
   type: 'buy' | 'sell';
-  date: string;
+  date: string;  // 用户选择的交易日期
+  confirmDate?: string;  // 实际确认日期（用于非交易日，如周日买入则确认为下周一）
   amount: number;  // 金额
   price: number;  // 价格/净值
   shares: number;  // 份额

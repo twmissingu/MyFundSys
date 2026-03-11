@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading } from 'antd-mobile';
+import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading, Picker } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
+
 import { useTransactions, deleteTransaction, addTransaction } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import { searchByCode, FundSearchResult, fetchFundNav } from '../services/fundApi';
@@ -8,10 +9,53 @@ import { updateLocalHoldingAfterTransaction } from '../services/syncService';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
+/**
+ * 判断是否为交易日（周一至周五，不考虑节假日）
+ */
+function isTradeDay(date: Date): boolean {
+  const day = date.getDay();
+  return day !== 0 && day !== 6; // 0=周日, 6=周六
+}
+
+/**
+ * 获取下一个交易日
+ */
+function getNextTradeDay(date: Date): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  while (!isTradeDay(next)) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+}
+
 const Transactions: React.FC = () => {
+  // 解析 hash 中的查询参数
+  const getFundCodeFromHash = () => {
+    const hash = window.location.hash;
+    const match = hash.match(/\?fundCode=([^&]+)/);
+    return match ? match[1] : null;
+  };
+  
+  const [fundCodeFromUrl, setFundCodeFromUrl] = useState<string | null>(getFundCodeFromHash());
+  
   const [activeType, setActiveType] = useState('all');
   const [activeStatus, setActiveStatus] = useState<'all' | 'pending' | 'completed'>('all');
+  const [selectedFundCode, setSelectedFundCode] = useState<string>(fundCodeFromUrl || 'all');
+  const [showFundPicker, setShowFundPicker] = useState(false);
   const { transactions, refresh } = useTransactions();
+  
+  // 监听 hash 变化
+  useEffect(() => {
+    const handleHashChange = () => {
+      const newFundCode = getFundCodeFromHash();
+      setFundCodeFromUrl(newFundCode);
+      setSelectedFundCode(newFundCode || 'all');
+    };
+    
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
   const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [form] = Form.useForm();
@@ -98,12 +142,39 @@ const Transactions: React.FC = () => {
     fetchNav();
   }, [selectedFund]);
 
+  // 从交易记录中提取所有唯一的基金代码（用于筛选）
+  const uniqueFundCodes = Array.from(new Set(transactions.map(t => t.fundCode)));
+  
+  // 准备 Picker 选项（只显示基金名称，更简洁）
+  const fundPickerColumns = [
+    [
+      { label: '全部基金', value: 'all' },
+      ...uniqueFundCodes.map(code => {
+        const fundName = transactions.find(t => t.fundCode === code)?.fundName || code;
+        return { label: fundName, value: code };
+      }),
+    ],
+  ];
+  
+  // 当前选中的基金显示文本
+  const selectedFundLabel = selectedFundCode === 'all' 
+    ? '全部基金' 
+    : (transactions.find(t => t.fundCode === selectedFundCode)?.fundName || selectedFundCode);
+  
+  // 清除基金筛选，返回全部
+  const clearFundFilter = () => {
+    setSelectedFundCode('all');
+    window.location.hash = '#transactions';
+  };
+
   // 筛选交易记录
   const filteredTransactions = transactions.filter(t => {
     // 按类型筛选
     if (activeType !== 'all' && t.type !== activeType) return false;
     // 按状态筛选
     if (activeStatus !== 'all' && t.status !== activeStatus) return false;
+    // 按基金代码筛选
+    if (selectedFundCode !== 'all' && t.fundCode !== selectedFundCode) return false;
     return true;
   });
   
@@ -145,7 +216,17 @@ const Transactions: React.FC = () => {
           const navData = await fetchFundNav(transaction.fundCode);
           
           if (navData && navData.nav > 0) {
-            // 有净值数据，处理在途交易
+            // 检查净值日期是否已经过了确认日期
+            const confirmDate = transaction.confirmDate || transaction.date;
+            const navDate = navData.navDate || new Date().toISOString().split('T')[0];
+            
+            // 如果净值日期早于确认日期，说明确认日的净值还未公布
+            if (navDate < confirmDate) {
+              console.log(`[Pending] 净值未更新，等待中: ${transaction.fundCode}, 确认日: ${confirmDate}, 净值日: ${navDate}`);
+              continue;
+            }
+            
+            // 有净值数据且日期已过确认日，处理在途交易
             const tradePrice = navData.nav;
             let shares: number;
             let amount: number;
@@ -177,7 +258,7 @@ const Transactions: React.FC = () => {
             });
             
             processedCount++;
-            console.log(`[Pending] 处理完成: ${transaction.fundCode}`);
+            console.log(`[Pending] 处理完成: ${transaction.fundCode}, 确认日: ${confirmDate}, 使用净值: ${navDate}`);
           }
         } catch (error) {
           console.error(`[Pending] 处理失败 ${transaction.fundCode}:`, error);
@@ -245,8 +326,35 @@ const Transactions: React.FC = () => {
         }
       }
 
-      // 判断是否为在途交易（无法获取净值或净值为0）
-      const isPending = !tradePrice || tradePrice <= 0;
+      // 判断净值是否已出：根据交易日期和当前时间判断
+      const tradeDate = new Date(values.date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      tradeDate.setHours(0, 0, 0, 0);
+      
+      // 净值公布时间：交易日当晚约 20:00-21:00 后
+      const now = new Date();
+      const isAfterNavTime = now.getHours() >= 21; // 晚上9点后认为净值已出
+      
+      // 判断交易日期是否为交易日，如果不是，获取下一个交易日
+      const actualTradeDay = isTradeDay(tradeDate) ? tradeDate : getNextTradeDay(tradeDate);
+      
+      // 判断是否为在途交易：
+      // 1. 无法获取净值或净值为0
+      // 2. 实际交易日是未来的日期
+      // 3. 实际交易日是今天但净值还没出（晚上9点前）
+      let isPending = !tradePrice || tradePrice <= 0;
+      
+      if (actualTradeDay > today) {
+        // 实际交易日是未来日期，净值肯定未出
+        isPending = true;
+      } else if (actualTradeDay.getTime() === today.getTime() && !isAfterNavTime) {
+        // 实际交易日是今天但晚上9点前，净值可能未出，标记为在途
+        isPending = true;
+      }
+      
+      // 如果在途，使用实际交易日作为确认日期（用于后续自动处理）
+      const confirmDate = actualTradeDay.toISOString().split('T')[0];
       
       // 根据交易类型计算份额和金额
       let shares: number;
@@ -271,6 +379,7 @@ const Transactions: React.FC = () => {
         fundName: fund.name,
         type: values.type,
         date: values.date,
+        confirmDate: confirmDate,
         amount: amount,
         price: finalPrice,
         shares: shares,
@@ -318,7 +427,21 @@ const Transactions: React.FC = () => {
 
   return (
     <div className="page-container">
-      <h1 className="page-title">交易记录</h1>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+        {fundCodeFromUrl && (
+          <Button
+            size='small'
+            fill='none'
+            onClick={clearFundFilter}
+            style={{ marginRight: 8, padding: '4px 8px' }}
+          >
+            ← 返回全部
+          </Button>
+        )}
+        <h1 className="page-title" style={{ margin: 0 }}>
+          {fundCodeFromUrl ? `${selectedFundLabel} 的交易` : '交易记录'}
+        </h1>
+      </div>
 
       {/* 添加交易按钮 */}
       <Button
@@ -353,10 +476,63 @@ const Transactions: React.FC = () => {
         <Tabs.Tab title="卖出" key="sell" />
       </Tabs>
 
+      {/* 基金代码筛选 - 使用 Picker 滚轮选择 */}
+      {(uniqueFundCodes.length > 0 || fundCodeFromUrl) && (
+        <div style={{ marginBottom: 12 }}>
+          <Button
+            fill='outline'
+            size='small'
+            onClick={() => setShowFundPicker(true)}
+            style={{
+              width: '100%',
+              justifyContent: 'space-between',
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #e0e0e0',
+              background: '#fff',
+            }}
+          >
+            <span style={{ 
+              color: selectedFundCode === 'all' ? '#999' : '#333',
+              fontSize: 14,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 'calc(100% - 40px)',
+            }}>
+              {selectedFundLabel}
+            </span>
+            <span style={{ color: '#1677ff', fontSize: 13, flexShrink: 0 }}>
+              选择基金 ▼
+            </span>
+          </Button>
+          
+          <Picker
+            visible={showFundPicker}
+            columns={fundPickerColumns}
+            value={[selectedFundCode]}
+            onConfirm={(val) => {
+              setSelectedFundCode(val[0] as string);
+              setShowFundPicker(false);
+              // 更新 URL 参数
+              if (val[0] === 'all') {
+                window.location.hash = '#transactions';
+              } else {
+                window.location.hash = `#transactions?fundCode=${val[0]}`;
+              }
+            }}
+            onCancel={() => setShowFundPicker(false)}
+          />
+        </div>
+      )}
+
       <Card className="card">
         {filteredTransactions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            暂无交易记录
+            {fundCodeFromUrl 
+              ? `${selectedFundLabel} 暂无交易记录`
+              : '暂无交易记录'
+            }
           </div>
         ) : (
           <div>
