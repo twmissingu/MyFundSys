@@ -32,6 +32,7 @@
   border-bottom: 1px solid #f0f0f0;
   cursor: pointer;
   transition: background 0.2s;
+  gap: 8px;
 }
 
 .favorite-item:last-child {
@@ -42,47 +43,65 @@
   background: #f5f5f5;
 }
 
+/* 左侧：基金信息 */
 .favorite-info {
   flex: 1;
   min-width: 0;
+  max-width: 40%;
 }
 
 .favorite-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: #333;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .favorite-code {
-  font-size: 12px;
+  font-size: 11px;
   color: #999;
 }
 
+/* 中部：迷你图表 */
+.favorite-chart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+}
+
+.chart-label {
+  font-size: 9px;
+  color: #bbb;
+  margin-top: 2px;
+}
+
+/* 右侧：净值信息 */
 .favorite-nav {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 2px;
-  min-width: 80px;
+  gap: 1px;
+  min-width: 70px;
 }
 
 .nav-value {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: #333;
 }
 
 .nav-change {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
 }
 
 .nav-date {
-  font-size: 11px;
+  font-size: 10px;
   color: #bbb;
 }
 
@@ -94,10 +113,23 @@
 /* 响应式调整 */
 @media (max-width: 375px) {
   .favorite-item {
-    padding: 10px 0;
+    padding: 8px 0;
+    gap: 6px;
   }
   
   .favorite-name {
-    font-size: 14px;
+    font-size: 13px;
+  }
+  
+  .favorite-chart {
+    min-width: 70px;
+  }
+  
+  .favorite-nav {
+    min-width: 65px;
+  }
+  
+  .nav-value {
+    font-size: 13px;
   }
 }

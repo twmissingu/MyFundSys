@@ -640,3 +640,156 @@ export function clearNavCache(): void {
   navCache.clear();
   valuationCache = null;
 }
+
+// ============================================
+// 批量获取基金历史净值（带缓存）- 用于收藏列表迷你图表
+// ============================================
+
+const HISTORY_CACHE_DAYS = 90; // 缓存3个月数据
+const HISTORY_CACHE_VALID_MS = 24 * 60 * 60 * 1000; // 缓存24小时
+
+export interface MiniHistoryPoint {
+  date: string;
+  nav: number;
+}
+
+/**
+ * 获取基金历史净值（优先从缓存，缺失的调API）
+ * @param fundCode 基金代码
+ * @param days 获取天数（默认90天）
+ */
+export async function getFundHistoryWithCache(
+  fundCode: string, 
+  days: number = HISTORY_CACHE_DAYS
+): Promise<MiniHistoryPoint[]> {
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+    
+    // 1. 从缓存读取
+    const cachedData = await db.fundHistoryCache
+      .where('code')
+      .equals(fundCode)
+      .filter(item => item.date >= cutoffStr)
+      .toArray();
+    
+    // 检查缓存是否完整（最近3个月数据点应该约60-66个）
+    const minExpectedPoints = Math.floor(days * 0.7); // 考虑周末节假日
+    const cacheAge = cachedData.length > 0 
+      ? Date.now() - new Date(cachedData[0].updatedAt).getTime()
+      : Infinity;
+    
+    // 缓存完整且未过期，直接返回
+    if (cachedData.length >= minExpectedPoints && cacheAge < HISTORY_CACHE_VALID_MS) {
+      console.log(`[HistoryCache] ${fundCode} 使用缓存，${cachedData.length}条`);
+      return cachedData
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .map(item => ({ date: item.date, nav: item.nav }));
+    }
+    
+    // 2. 缓存不完整或过期，从API获取
+    console.log(`[HistoryCache] ${fundCode} 缓存缺失，从API获取`);
+    const apiData = await fetchFundHistoryBatch(fundCode, days);
+    
+    // 3. 保存到缓存
+    if (apiData.length > 0) {
+      await saveHistoryCache(fundCode, apiData);
+    }
+    
+    return apiData.map(item => ({ date: item.date, nav: item.nav }));
+  } catch (error) {
+    console.error(`[HistoryCache] 获取失败 ${fundCode}:`, error);
+    return [];
+  }
+}
+
+/**
+ * 批量获取多只基金的历史净值
+ * @param fundCodes 基金代码数组
+ * @param days 获取天数
+ */
+export async function batchGetFundHistory(
+  fundCodes: string[],
+  days: number = HISTORY_CACHE_DAYS
+): Promise<Record<string, MiniHistoryPoint[]>> {
+  const result: Record<string, MiniHistoryPoint[]> = {};
+  
+  // 串行获取，避免并发请求过多
+  for (const code of fundCodes) {
+    result[code] = await getFundHistoryWithCache(code, days);
+    // 小延迟，避免请求过快
+    if (fundCodes.length > 3) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * 批量获取历史净值数据（内部函数，分页加载）
+ */
+async function fetchFundHistoryBatch(
+  fundCode: string, 
+  days: number
+): Promise<FundHistoryData[]> {
+  const targetSize = days;
+  let allData: FundHistoryData[] = [];
+  let pageIndex = 1;
+  const maxPages = 10;
+  
+  // 分页加载
+  while (allData.length < targetSize && pageIndex <= maxPages) {
+    const pageData = await fetchFundHistory(fundCode, 100, pageIndex, '');
+    
+    if (pageData.length === 0) break;
+    
+    allData = [...allData, ...pageData];
+    
+    if (pageData.length < 100) break;
+    pageIndex++;
+  }
+  
+  // 按时间正序排列
+  allData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  
+  // 截取目标数量
+  return allData.slice(-targetSize);
+}
+
+/**
+ * 保存历史净值到缓存
+ */
+async function saveHistoryCache(
+  fundCode: string, 
+  data: FundHistoryData[]
+): Promise<void> {
+  const now = new Date().toISOString();
+  
+  const cacheItems = data.map(item => ({
+    id: `${fundCode}_${item.date}`,
+    code: fundCode,
+    date: item.date,
+    nav: item.nav,
+    accNav: item.accNav,
+    dailyChangeRate: item.dailyChangeRate,
+    updatedAt: now,
+  }));
+  
+  // 使用 bulkPut 批量插入/更新
+  await db.fundHistoryCache.bulkPut(cacheItems);
+  console.log(`[HistoryCache] ${fundCode} 已缓存 ${cacheItems.length}条`);
+}
+
+/**
+ * 清理过期的历史缓存
+ */
+export async function cleanHistoryCache(): Promise<void> {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - HISTORY_CACHE_DAYS - 30); // 保留多30天
+  const cutoffStr = cutoffDate.toISOString().split('T')[0];
+  
+  await db.fundHistoryCache.where('date').below(cutoffStr).delete();
+  console.log('[HistoryCache] 已清理过期数据');
+}

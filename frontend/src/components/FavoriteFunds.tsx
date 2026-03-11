@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, SwipeAction, Toast, SpinLoading } from 'antd-mobile';
 import { StarFill } from 'antd-mobile-icons';
 import { db, FavoriteFund } from '../db';
 import { fetchFundNav } from '../services/fundApi';
+import { batchGetFundHistory, MiniHistoryPoint } from '../services/fundApi';
+import SparklineChart from './SparklineChart';
 import type { FundApiData } from '../types';
 import './FavoriteFunds.css';
 
 interface FundWithData extends FavoriteFund {
   navData?: FundApiData | null;
+  historyData?: MiniHistoryPoint[];
 }
 
 interface FavoriteFundsProps {
@@ -17,7 +20,9 @@ interface FavoriteFundsProps {
 const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
   const [favorites, setFavorites] = useState<FundWithData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // 初始加载
   useEffect(() => {
     loadFavorites();
   }, []);
@@ -30,8 +35,8 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
         .reverse()
         .toArray();
       
-      // 获取每个基金的实时净值
-      const listWithData = await Promise.all(
+      // 获取实时净值（优先）
+      const listWithNav = await Promise.all(
         list.map(async (fund) => {
           try {
             const navData = await fetchFundNav(fund.code);
@@ -42,11 +47,34 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
         })
       );
       
-      setFavorites(listWithData);
+      setFavorites(listWithNav);
+      
+      // 再异步加载历史数据（用于图表）
+      loadHistoryData(listWithNav);
     } catch (error) {
       console.error('加载收藏失败:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 加载历史数据（带缓存优化）
+  const loadHistoryData = async (funds: FundWithData[]) => {
+    if (funds.length === 0) return;
+    
+    setLoadingHistory(true);
+    try {
+      const codes = funds.map(f => f.code);
+      const historyMap = await batchGetFundHistory(codes, 90); // 3个月
+      
+      setFavorites(prev => prev.map(fund => ({
+        ...fund,
+        historyData: historyMap[fund.code] || []
+      })));
+    } catch (error) {
+      console.error('加载历史数据失败:', error);
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -69,11 +97,11 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
   };
 
   // 刷新净值数据
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setLoading(true);
     await loadFavorites();
     Toast.show({ content: '已刷新', position: 'bottom' });
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -110,6 +138,11 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
         </span>
       }
     >
+      {loadingHistory && (
+        <div style={{ textAlign: 'center', padding: '4px', marginBottom: '8px' }}>
+          <span style={{ fontSize: 12, color: '#999' }}>加载趋势图...</span>
+        </div>
+      )}
       <div className="favorite-list">
         {favorites.map((fund) => (
           <SwipeAction
@@ -127,10 +160,23 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
               className="favorite-item"
               onClick={() => handleClick(fund)}
             >
+              {/* 左侧：基金信息 */}
               <div className="favorite-info">
                 <div className="favorite-name">{fund.name}</div>
                 <div className="favorite-code">{fund.code}</div>
               </div>
+              
+              {/* 中部：三月走势迷你图 */}
+              <div className="favorite-chart">
+                <SparklineChart 
+                  data={fund.historyData || []} 
+                  width={80} 
+                  height={36}
+                />
+                <div className="chart-label">近三月</div>
+              </div>
+              
+              {/* 右侧：净值信息 */}
               <div className="favorite-nav">
                 {fund.navData ? (
                   <>

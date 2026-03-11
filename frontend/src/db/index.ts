@@ -10,6 +10,17 @@ export interface FavoriteFund {
   createdAt: string;
 }
 
+// 基金历史净值缓存（用于收藏列表的迷你图表）
+export interface FundHistoryCache {
+  id: string;           // 复合主键: code_date
+  code: string;         // 基金代码
+  date: string;         // 日期
+  nav: number;          // 单位净值
+  accNav?: number;      // 累计净值
+  dailyChangeRate?: number; // 日涨跌幅
+  updatedAt: string;    // 更新时间
+}
+
 // 基金缓存条目（保留但简化，用于向后兼容）
 export interface FundCacheItem {
   id: string;
@@ -93,15 +104,17 @@ export class FundDatabase extends Dexie {
   fundCache!: Table<FundCacheItem>;
   fundSearchHistory!: Table<FundSearchHistory>;
   favoriteFunds!: Table<FavoriteFund>;
+  fundHistoryCache!: Table<FundHistoryCache>;
 
   constructor() {
     super('FundDatabase');
-    this.version(5).stores({
+    this.version(6).stores({
       funds: 'id, code, name, category, updatedAt',
       holdings: 'id, fundId, fundCode, updatedAt',
       fundCache: 'id, code, name, isHolding, searchCount, lastUpdated',
       fundSearchHistory: '++id, keyword, searchedAt',
       favoriteFunds: 'id, code, name, createdAt',
+      fundHistoryCache: 'id, code, date, updatedAt',
       transactions: 'id, fundId, fundCode, type, date, createdAt',
       articles: 'id, title, date, source, category',
       strategies: 'id, name, type, updatedAt',
