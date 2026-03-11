@@ -43,6 +43,7 @@ export interface Transaction {
   shares: number;  // 份额
   fee?: number;  // 手续费
   remark?: string;  // 备注
+  status?: 'pending' | 'completed';  // 交易状态：pending=在途等待净值，completed=已完成
   createdAt: string;
 }
 

@@ -108,14 +108,14 @@ export class FundDatabase extends Dexie {
 
   constructor() {
     super('FundDatabase');
-    this.version(6).stores({
+    this.version(7).stores({
       funds: 'id, code, name, category, updatedAt',
       holdings: 'id, fundId, fundCode, updatedAt',
       fundCache: 'id, code, name, isHolding, searchCount, lastUpdated',
       fundSearchHistory: '++id, keyword, searchedAt',
       favoriteFunds: 'id, code, name, createdAt',
       fundHistoryCache: 'id, code, date, updatedAt',
-      transactions: 'id, fundId, fundCode, type, date, createdAt',
+      transactions: 'id, fundId, fundCode, type, date, status, createdAt',
       articles: 'id, title, date, source, category',
       strategies: 'id, name, type, updatedAt',
       backtestResults: 'id, strategyName, startDate, endDate',

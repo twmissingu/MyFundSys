@@ -259,7 +259,7 @@ export async function getTransactions(fundCode?: string): Promise<Transaction[]>
 // 本地持仓计算
 // ============================================
 
-async function updateLocalHoldingAfterTransaction(transaction: Omit<Transaction, 'id' | 'createdAt'>) {
+export async function updateLocalHoldingAfterTransaction(transaction: Omit<Transaction, 'id' | 'createdAt'>) {
   const existing = await db.holdings.where('fundCode').equals(transaction.fundCode).first();
 
   if (transaction.type === 'buy') {

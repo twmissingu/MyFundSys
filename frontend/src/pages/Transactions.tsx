@@ -4,11 +4,13 @@ import { AddOutline } from 'antd-mobile-icons';
 import { useTransactions, deleteTransaction, addTransaction } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import { searchByCode, FundSearchResult, fetchFundNav } from '../services/fundApi';
+import { updateLocalHoldingAfterTransaction } from '../services/syncService';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
 const Transactions: React.FC = () => {
   const [activeType, setActiveType] = useState('all');
+  const [activeStatus, setActiveStatus] = useState<'all' | 'pending' | 'completed'>('all');
   const { transactions, refresh } = useTransactions();
   const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -98,9 +100,15 @@ const Transactions: React.FC = () => {
 
   // 筛选交易记录
   const filteredTransactions = transactions.filter(t => {
-    if (activeType === 'all') return true;
-    return t.type === activeType;
+    // 按类型筛选
+    if (activeType !== 'all' && t.type !== activeType) return false;
+    // 按状态筛选
+    if (activeStatus !== 'all' && t.status !== activeStatus) return false;
+    return true;
   });
+  
+  // 获取在途交易数量
+  const pendingCount = transactions.filter(t => t.status === 'pending').length;
 
   const handleDelete = async (id: string) => {
     await Dialog.confirm({
@@ -116,6 +124,82 @@ const Transactions: React.FC = () => {
       },
     });
   };
+
+  // 处理在途交易
+  const processPendingTransactions = async () => {
+    try {
+      // 获取所有在途交易
+      const pendingTransactions = await db.transactions
+        .where('status')
+        .equals('pending')
+        .toArray();
+      
+      if (pendingTransactions.length === 0) return;
+      
+      console.log(`[Pending] 发现 ${pendingTransactions.length} 笔在途交易`);
+      let processedCount = 0;
+      
+      for (const transaction of pendingTransactions) {
+        try {
+          // 尝试获取净值
+          const navData = await fetchFundNav(transaction.fundCode);
+          
+          if (navData && navData.nav > 0) {
+            // 有净值数据，处理在途交易
+            const tradePrice = navData.nav;
+            let shares: number;
+            let amount: number;
+            
+            if (transaction.type === 'buy') {
+              // 买入：根据金额计算份额
+              amount = transaction.amount;
+              shares = amount / tradePrice;
+            } else {
+              // 卖出：根据份额计算金额
+              shares = transaction.shares;
+              amount = shares * tradePrice;
+            }
+            
+            // 更新交易记录
+            await db.transactions.update(transaction.id, {
+              price: tradePrice,
+              shares: shares,
+              amount: amount,
+              status: 'completed',
+            });
+            
+            // 更新持仓
+            await updateLocalHoldingAfterTransaction({
+              ...transaction,
+              price: tradePrice,
+              shares: shares,
+              amount: amount,
+            });
+            
+            processedCount++;
+            console.log(`[Pending] 处理完成: ${transaction.fundCode}`);
+          }
+        } catch (error) {
+          console.error(`[Pending] 处理失败 ${transaction.fundCode}:`, error);
+        }
+      }
+      
+      if (processedCount > 0) {
+        Toast.show({ 
+          content: `已处理 ${processedCount} 笔在途交易`, 
+          position: 'bottom' 
+        });
+        refresh();
+      }
+    } catch (error) {
+      console.error('[Pending] 处理在途交易失败:', error);
+    }
+  };
+
+  // 进入页面时自动处理在途交易
+  useEffect(() => {
+    processPendingTransactions();
+  }, []);
 
   const handleAddTransaction = async (values: any) => {
     try {
@@ -157,28 +241,28 @@ const Transactions: React.FC = () => {
           const navData = await fetchFundNav(fund.code);
           tradePrice = navData?.nav || 0;
         } catch (error) {
-          Toast.show({ content: '无法获取基金净值，请稍后重试', position: 'bottom' });
-          return;
+          console.log('无法获取净值，将创建在途交易');
         }
       }
 
-      if (!tradePrice || tradePrice <= 0) {
-        Toast.show({ content: '无法获取有效净值，请稍后重试', position: 'bottom' });
-        return;
-      }
-
+      // 判断是否为在途交易（无法获取净值或净值为0）
+      const isPending = !tradePrice || tradePrice <= 0;
+      
       // 根据交易类型计算份额和金额
       let shares: number;
       let amount: number;
+      let finalPrice: number;
       
       if (values.type === 'buy') {
-        // 买入：输入金额，计算份额
+        // 买入：输入金额，计算份额（如果在途，份额先设为0）
         amount = Number(values.amount);
-        shares = amount / tradePrice;
+        shares = isPending ? 0 : amount / (tradePrice || 1);
+        finalPrice = isPending ? 0 : (tradePrice || 0);
       } else {
-        // 卖出：输入份额，计算金额
+        // 卖出：输入份额，计算金额（如果在途，金额先设为0）
         shares = Number(values.shares);
-        amount = shares * tradePrice;
+        amount = isPending ? 0 : shares * (tradePrice || 0);
+        finalPrice = isPending ? 0 : (tradePrice || 0);
       }
 
       await addTransaction({
@@ -188,16 +272,25 @@ const Transactions: React.FC = () => {
         type: values.type,
         date: values.date,
         amount: amount,
-        price: tradePrice,
+        price: finalPrice,
         shares: shares,
         fee: 0,
         remark: values.remark,
+        status: isPending ? 'pending' : 'completed',
       });
 
-      Toast.show({ 
-        content: `添加成功，${values.type === 'buy' ? '买入' : '卖出'}${shares.toFixed(2)}份`, 
-        position: 'bottom' 
-      });
+      if (isPending) {
+        Toast.show({ 
+          content: '已创建在途交易，净值更新后将自动处理', 
+          position: 'bottom' 
+        });
+      } else {
+        Toast.show({ 
+          content: `添加成功，${values.type === 'buy' ? '买入' : '卖出'}${shares.toFixed(2)}份`, 
+          position: 'bottom' 
+        });
+      }
+      
       setShowAddDialog(false);
       resetSearch();
       form.resetFields();
@@ -236,6 +329,19 @@ const Transactions: React.FC = () => {
       >
         <AddOutline /> 添加交易
       </Button>
+
+      <Tabs
+        activeKey={activeStatus}
+        onChange={(key) => setActiveStatus(key as 'all' | 'pending' | 'completed')}
+        style={{ marginBottom: 12 }}
+      >
+        <Tabs.Tab title="全部交易" key="all" />
+        <Tabs.Tab 
+          title={pendingCount > 0 ? `在途 (${pendingCount})` : '在途'} 
+          key="pending" 
+        />
+        <Tabs.Tab title="已完成" key="completed" />
+      </Tabs>
 
       <Tabs
         activeKey={activeType}
@@ -292,20 +398,38 @@ const Transactions: React.FC = () => {
                             >
                               {transaction.type === 'buy' ? '买入' : '卖出'}
                             </Tag>
+                            {transaction.status === 'pending' && (
+                              <Tag 
+                                color="warning"
+                                style={{ marginLeft: 8, fontSize: 11 }}
+                              >
+                                在途
+                              </Tag>
+                            )}
                           </div>
                         }
                         description={
                           <div style={{ fontSize: 13, color: '#999' }}>
-                            {transaction.fundCode} | 价格: {transaction.price.toFixed(4)}
+                            {transaction.fundCode} 
+                            {transaction.status === 'pending' 
+                              ? ' | 等待净值确认' 
+                              : ` | 价格: ${transaction.price.toFixed(4)}`
+                            }
                           </div>
                         }
                         extra={
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: 15, fontWeight: 500 }}>
-                              {formatMoney(transaction.amount)}
+                              {transaction.status === 'pending' 
+                                ? (transaction.type === 'buy' ? `¥${transaction.amount.toFixed(2)}` : `${transaction.shares.toFixed(2)}份`)
+                                : formatMoney(transaction.amount)
+                              }
                             </div>
                             <div style={{ fontSize: 13, color: '#999' }}>
-                              {transaction.shares.toFixed(2)} 份
+                              {transaction.status === 'pending' 
+                                ? '待确认' 
+                                : `${transaction.shares.toFixed(2)} 份`
+                              }
                             </div>
                           </div>
                         }
