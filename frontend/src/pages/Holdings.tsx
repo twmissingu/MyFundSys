@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, List, Button, Dialog, Form, Input, Toast, SwipeAction, Tabs, Tag } from 'antd-mobile';
-import { AddOutline } from 'antd-mobile-icons';
+import { Card, List, Toast, SwipeAction, Tabs, Tag, Dialog } from 'antd-mobile';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { useHoldings, addTransaction, deleteHolding } from '../hooks/useSync';
+import { useHoldings, deleteHolding } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import { formatMoney, formatPercent } from '../utils';
 import './Layout.css';
@@ -12,9 +11,7 @@ const COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2'
 const Holdings: React.FC = () => {
   const { holdings, refresh } = useHoldings();
   const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
-  const [showAddDialog, setShowAddDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('list');
-  const [form] = Form.useForm();
 
   // 加载基金缓存
   useEffect(() => {
@@ -95,45 +92,6 @@ const Holdings: React.FC = () => {
     })).sort((a, b) => b.value - b.value);
   }, [holdings, fundCache]);
 
-  const handleAddTransaction = async (values: any) => {
-    try {
-      // 从缓存中查找基金
-      let fund = fundCache.find(f => f.code === values.fundCode);
-      
-      // 如果缓存中没有，尝试从API获取基金信息
-      if (!fund) {
-        Toast.show({ 
-          content: '请先搜索添加该基金到列表', 
-          position: 'bottom' 
-        });
-        return;
-      }
-
-      const shares = values.amount / values.price;
-      
-      await addTransaction({
-        fundId: fund.id,
-        fundCode: fund.code,
-        fundName: fund.name,
-        type: values.type,
-        date: values.date,
-        amount: Number(values.amount),
-        price: Number(values.price),
-        shares: shares,
-        fee: values.fee ? Number(values.fee) : 0,
-        remark: values.remark,
-      });
-
-      Toast.show({ content: '添加成功', position: 'bottom' });
-      setShowAddDialog(false);
-      form.resetFields();
-      refresh();
-    } catch (error) {
-      console.error('Add transaction error:', error);
-      Toast.show({ content: '添加失败', position: 'bottom' });
-    }
-  };
-
   const handleDeleteHolding = async (id: string) => {
     await Dialog.confirm({
       content: '确定要删除这个持仓吗？',
@@ -165,7 +123,7 @@ const Holdings: React.FC = () => {
     <Card title={`持仓明细 (${holdings.length})`} className="card">
       {holdings.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-          暂无持仓，点击上方按钮添加交易
+          暂无持仓，请在交易页面添加交易记录
         </div>
       ) : (
         <List>
@@ -327,16 +285,6 @@ const Holdings: React.FC = () => {
         </div>
       </div>
 
-      {/* 添加交易按钮 */}
-      <Button
-        block
-        color="primary"
-        onClick={() => setShowAddDialog(true)}
-        style={{ marginBottom: 12 }}
-      >
-        <AddOutline /> 添加交易
-      </Button>
-
       {/* 标签页切换 */}
       <Tabs
         activeKey={activeTab}
@@ -349,109 +297,6 @@ const Holdings: React.FC = () => {
 
       {/* 内容区域 */}
       {activeTab === 'list' ? renderListView() : renderStatsView()}
-
-      {/* 添加交易对话框 */}
-      <Dialog
-        visible={showAddDialog}
-        title="添加交易"
-        content={
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={handleAddTransaction}
-          >
-            <Form.Item
-              name="fundCode"
-              label="基金代码"
-              rules={[{ required: true, message: '请输入基金代码' }]}
-            >
-              <Input placeholder="如: 510300（需先在基金列表搜索添加）" />
-            </Form.Item>
-
-            <Form.Item
-              name="type"
-              label="交易类型"
-              rules={[{ required: true }]}
-              initialValue="buy"
-            >
-              <div>
-                <Button
-                  size="small"
-                  color={form.getFieldValue('type') === 'buy' ? 'primary' : 'default'}
-                  onClick={() => form.setFieldsValue({ type: 'buy' })}
-                  style={{ marginRight: 8 }}
-                >
-                  买入
-                </Button>
-                <Button
-                  size="small"
-                  color={form.getFieldValue('type') === 'sell' ? 'primary' : 'default'}
-                  onClick={() => form.setFieldsValue({ type: 'sell' })}
-                >
-                  卖出
-                </Button>
-              </div>
-            </Form.Item>
-
-            <Form.Item
-              name="date"
-              label="交易日期"
-              rules={[{ required: true }]}
-              initialValue={new Date().toISOString().split('T')[0]}
-            >
-              <Input type="date" />
-            </Form.Item>
-
-            <Form.Item
-              name="amount"
-              label="交易金额"
-              rules={[{ required: true, message: '请输入金额' }]}
-            >
-              <Input type="number" placeholder="0.00" />
-            </Form.Item>
-
-            <Form.Item
-              name="price"
-              label="成交价格"
-              rules={[{ required: true, message: '请输入价格' }]}
-            >
-              <Input type="number" placeholder="0.0000" />
-            </Form.Item>
-
-            <Form.Item
-              name="fee"
-              label="手续费"
-            >
-              <Input type="number" placeholder="0.00" />
-            </Form.Item>
-
-            <Form.Item
-              name="remark"
-              label="备注"
-            >
-              <Input placeholder="可选" />
-            </Form.Item>
-          </Form>
-        }
-        actions={[
-          [
-            {
-              key: 'cancel',
-              text: '取消',
-              onClick: () => {
-                setShowAddDialog(false);
-                form.resetFields();
-              },
-            },
-            {
-              key: 'confirm',
-              text: '确定',
-              bold: true,
-              onClick: () => form.submit(),
-            },
-          ],
-        ]}
-      />
     </div>
   );
 };

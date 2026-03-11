@@ -1,12 +1,26 @@
-import React, { useState } from 'react';
-import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog } from 'antd-mobile';
-import { useTransactions, deleteTransaction } from '../hooks/useSync';
+import React, { useState, useEffect } from 'react';
+import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input } from 'antd-mobile';
+import { AddOutline } from 'antd-mobile-icons';
+import { useTransactions, deleteTransaction, addTransaction } from '../hooks/useSync';
+import { db, FundCacheItem } from '../db';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
 const Transactions: React.FC = () => {
   const [activeType, setActiveType] = useState('all');
   const { transactions, refresh } = useTransactions();
+  const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [form] = Form.useForm();
+
+  // 加载基金缓存
+  useEffect(() => {
+    const loadFundCache = async () => {
+      const funds = await db.fundCache.toArray();
+      setFundCache(funds);
+    };
+    loadFundCache();
+  }, []);
 
   // 筛选交易记录
   const filteredTransactions = transactions.filter(t => {
@@ -29,6 +43,64 @@ const Transactions: React.FC = () => {
     });
   };
 
+  const handleAddTransaction = async (values: any) => {
+    try {
+      // 从缓存中查找基金
+      let fund = fundCache.find(f => f.code === values.fundCode);
+      
+      // 如果缓存中没有，尝试从收藏基金中查找
+      if (!fund) {
+        const favoriteFund = await db.favoriteFunds.where('code').equals(values.fundCode).first();
+        if (favoriteFund) {
+          fund = {
+            id: favoriteFund.id,
+            code: favoriteFund.code,
+            name: favoriteFund.name,
+            category: favoriteFund.category,
+            source: 'system',
+            isHolding: false,
+            holdingShares: 0,
+            searchCount: 0,
+            lastUpdated: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          } as FundCacheItem;
+        }
+      }
+      
+      if (!fund) {
+        Toast.show({ 
+          content: '请先搜索添加该基金到列表', 
+          position: 'bottom' 
+        });
+        return;
+      }
+
+      const shares = values.amount / values.price;
+      
+      await addTransaction({
+        fundId: fund.id,
+        fundCode: fund.code,
+        fundName: fund.name,
+        type: values.type,
+        date: values.date,
+        amount: Number(values.amount),
+        price: Number(values.price),
+        shares: shares,
+        fee: values.fee ? Number(values.fee) : 0,
+        remark: values.remark,
+      });
+
+      Toast.show({ content: '添加成功', position: 'bottom' });
+      setShowAddDialog(false);
+      form.resetFields();
+      refresh();
+    } catch (error) {
+      console.error('Add transaction error:', error);
+      Toast.show({ content: '添加失败', position: 'bottom' });
+    }
+  };
+
   // 按日期分组
   const groupedTransactions = filteredTransactions.reduce((groups, t) => {
     const date = t.date;
@@ -46,6 +118,16 @@ const Transactions: React.FC = () => {
   return (
     <div className="page-container">
       <h1 className="page-title">交易记录</h1>
+
+      {/* 添加交易按钮 */}
+      <Button
+        block
+        color="primary"
+        onClick={() => setShowAddDialog(true)}
+        style={{ marginBottom: 12 }}
+      >
+        <AddOutline /> 添加交易
+      </Button>
 
       <Tabs
         activeKey={activeType}
@@ -132,6 +214,111 @@ const Transactions: React.FC = () => {
       <div style={{ textAlign: 'center', padding: '12px', color: '#999', fontSize: 13 }}>
         共 {filteredTransactions.length} 条记录
       </div>
+
+      {/* 添加交易对话框 */}
+      <Dialog
+        visible={showAddDialog}
+        title="添加交易"
+        content={
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={handleAddTransaction}
+          >
+            <Form.Item
+              name="fundCode"
+              label="基金代码"
+              rules={[{ required: true, message: '请输入基金代码' }]}
+            >
+              <Input placeholder="如: 510300（需先在基金列表搜索添加）" />
+            </Form.Item>
+
+            <Form.Item
+              name="type"
+              label="交易类型"
+              rules={[{ required: true }]}
+              initialValue="buy"
+            >
+              <div>
+                <Button
+                  size="small"
+                  color={form.getFieldValue('type') === 'buy' ? 'primary' : 'default'}
+                  onClick={() => form.setFieldsValue({ type: 'buy' })}
+                  style={{ marginRight: 8 }}
+                >
+                  买入
+                </Button>
+                <Button
+                  size="small"
+                  color={form.getFieldValue('type') === 'sell' ? 'primary' : 'danger'}
+                  onClick={() => form.setFieldsValue({ type: 'sell' })}
+                >
+                  卖出
+                </Button>
+              </div>
+            </Form.Item>
+
+            <Form.Item
+              name="date"
+              label="交易日期"
+              rules={[{ required: true }]}
+              initialValue={new Date().toISOString().split('T')[0]}
+            >
+              <Input type="date" />
+            </Form.Item>
+
+            <Form.Item
+              name="amount"
+              label="交易金额"
+              rules={[{ required: true, message: '请输入金额' }]}
+            >
+              <Input type="number" placeholder="0.00" />
+            </Form.Item>
+
+            <Form.Item
+              name="price"
+              label="成交价格"
+              rules={[{ required: true, message: '请输入价格' }]}
+            >
+              <Input type="number" placeholder="0.0000" />
+            </Form.Item>
+
+            <Form.Item
+              name="fee"
+              label="手续费"
+            >
+              <Input type="number" placeholder="0.00" />
+            </Form.Item>
+
+            <Form.Item
+              name="remark"
+              label="备注"
+            >
+              <Input placeholder="可选" />
+            </Form.Item>
+          </Form>
+        }
+        actions={[
+          [
+            {
+              key: 'cancel',
+              text: '取消',
+              onClick: () => {
+                setShowAddDialog(false);
+                form.resetFields();
+              },
+            },
+            {
+              key: 'confirm',
+              text: '确定',
+              bold: true,
+              onClick: () => {
+                form.submit();
+              },
+            },
+          ],
+        ]}
+      />
     </div>
   );
 };
