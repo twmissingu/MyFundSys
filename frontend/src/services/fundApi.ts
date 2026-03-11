@@ -217,9 +217,9 @@ export async function searchByCode(code: string): Promise<FundSearchResult[]> {
   try {
     // 直接从东方财富API搜索（不再使用本地缓存优先）
     const apiResults = await searchFromEastMoney(trimmedCode);
-    // 过滤只保留代码匹配的结果
+    // 过滤只保留代码前缀匹配的结果（如输入000，匹配000001，不匹配100000）
     const filteredResults = apiResults.filter(f => 
-      f.code.toLowerCase().includes(trimmedCode.toLowerCase())
+      f.code.toLowerCase().startsWith(trimmedCode.toLowerCase())
     );
     
     return filteredResults.slice(0, 10);
