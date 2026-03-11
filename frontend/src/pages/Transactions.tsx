@@ -323,20 +323,24 @@ const Transactions: React.FC = () => {
                           marginTop: '4px'
                         }}
                       >
-                        {codeSearchResults.map((fund) => (
-                          <div
-                            key={fund.code}
-                            onClick={() => handleSelectFund(fund)}
-                            style={{
-                              padding: '8px 12px',
-                              borderBottom: '1px solid #f5f5f5',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div style={{ fontSize: 14, fontWeight: 500 }}>{fund.name}</div>
-                            <div style={{ fontSize: 12, color: '#999' }}>{fund.code}</div>
-                          </div>
-                        ))}
+                        {codeSearchResults
+                          .filter((fund, index, self) => 
+                            index === self.findIndex(f => f.code === fund.code)
+                          )
+                          .map((fund) => (
+                            <div
+                              key={fund.code}
+                              onClick={() => handleSelectFund(fund)}
+                              style={{
+                                padding: '8px 12px',
+                                borderBottom: '1px solid #f5f5f5',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <div style={{ fontSize: 14, fontWeight: 500 }}>{fund.name}</div>
+                              <div style={{ fontSize: 12, color: '#999' }}>{fund.code}</div>
+                            </div>
+                          ))}
                       </div>
                     )}
                     {!isCodeSearching && codeSearchText.length >= 4 && codeSearchResults.length === 0 && (
