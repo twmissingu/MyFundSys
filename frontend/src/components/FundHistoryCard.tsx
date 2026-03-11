@@ -57,11 +57,12 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
       
       let allData: FundHistoryData[] = [];
       let pageIndex = 1;
-      const maxPages = 10; // 最多加载10页（约1000条）
+      const maxPages = 50; // 最多加载50页（约1000条，每页20条）
       
       // 分页加载，直到获取足够数据或没有更多数据
+      // 注意：东方财富API每页固定返回20条，无视pageSize参数
       while (allData.length < targetSize && pageIndex <= maxPages) {
-        const pageData = await fetchFundHistory(fundCode, 100, pageIndex);
+        const pageData = await fetchFundHistory(fundCode, 20, pageIndex);
         
         if (pageData.length === 0) {
           break; // 没有更多数据
@@ -69,8 +70,8 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
         
         allData = [...allData, ...pageData];
         
-        // 如果当前页返回数据少于100条，说明是最后一页
-        if (pageData.length < 100) {
+        // 如果当前页返回数据少于20条，说明是最后一页
+        if (pageData.length < 20) {
           break;
         }
         
