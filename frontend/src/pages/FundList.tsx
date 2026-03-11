@@ -61,17 +61,22 @@ const FundList: React.FC = () => {
     window.location.hash = `fund/${fund.code}`;
   };
 
-  // 渲染搜索结果
+  // 渲染搜索结果（去重处理）
   const renderSearchResults = (results: FundSearchResult[]) => {
     if (results.length === 0) return null;
+    
+    // 按 code 去重，保留第一个
+    const uniqueResults = results.filter((fund, index, self) => 
+      index === self.findIndex(f => f.code === fund.code)
+    );
     
     return (
       <Card style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 14, color: '#666', marginBottom: 12 }}>
-          搜索结果 ({results.length}只)
+          搜索结果 ({uniqueResults.length}只)
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {results.map((fund) => (
+          {uniqueResults.map((fund) => (
             <div
               key={fund.code}
               onClick={() => handleSelectFund(fund)}
