@@ -277,5 +277,16 @@ def get_base_nav(code: str) -> float:
     }
     return base_navs.get(code, 1.0)
 
+# 添加 /api 前缀的路由（兼容 Vercel 路由配置）
+@app.route('/api/eastmoney/<path:path>', methods=['GET'])
+def proxy_eastmoney_api(path):
+    """代理东方财富API请求 - /api 前缀版本"""
+    return proxy_eastmoney(path)
+
+@app.route('/api/suggest/api/suggest/get', methods=['GET'])
+def proxy_eastmoney_search_api():
+    """代理东方财富搜索API - /api 前缀版本"""
+    return proxy_eastmoney_search()
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
