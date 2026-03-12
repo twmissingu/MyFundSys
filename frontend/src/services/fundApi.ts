@@ -398,8 +398,11 @@ async function searchLocalFunds(keyword: string): Promise<FundSearchResult[]> {
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
   try {
     const url = `${API_BASE}/api/suggest/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
+    console.log('[Search] API URL:', url);
     
     const response = await fetch(url);
+    console.log('[Search] API Response:', response.status, response.statusText);
+    
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
