@@ -7,10 +7,137 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 // 配置
 // ============================================
 
+// 检测运行环境
+const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+
 // API基础URL
 const API_BASE = import.meta.env.DEV 
   ? 'http://localhost:3001'  // 开发环境使用代理服务器
-  : '';  // 生产环境使用相对路径
+  : isGitHubPages 
+    ? 'https://fundmobapi.eastmoney.com'  // GitHub Pages 直接调用（可能有CORS限制）
+    : '';  // 其他生产环境使用相对路径
+
+// 预置基金数据（GitHub Pages 环境使用）
+const PRESET_FUNDS: FundSearchResult[] = [
+  { code: '000001', name: '华夏成长混合', type: '混合型' },
+  { code: '000003', name: '中海可转债债券A', type: '债券型' },
+  { code: '000008', name: '嘉实中证500ETF联接A', type: '股票指数' },
+  { code: '000011', name: '华夏大盘精选混合A', type: '混合型' },
+  { code: '000021', name: '华夏优势增长混合', type: '混合型' },
+  { code: '000032', name: '易方达信用债债券A', type: '债券型' },
+  { code: '000051', name: '鹏华价值优势混合', type: '混合型' },
+  { code: '000100', name: '富国中证红利指数增强A', type: '股票指数' },
+  { code: '000171', name: '易方达裕丰回报债券', type: '债券型' },
+  { code: '000217', name: '华安黄金易ETF联接A', type: '商品型' },
+  { code: '000248', name: '汇添富中证主要消费ETF联接A', type: '股票指数' },
+  { code: '000478', name: '建信中证500指数增强A', type: '股票指数' },
+  { code: '000592', name: '建信改革红利股票A', type: '股票型' },
+  { code: '000614', name: '华安纳斯达克100指数', type: 'QDII' },
+  { code: '000834', name: '易方达沪深300ETF联接A', type: '股票指数' },
+  { code: '000905', name: '鹏华丰禄债券', type: '债券型' },
+  { code: '001051', name: '华夏上证50ETF联接A', type: '股票指数' },
+  { code: '001180', name: '广发中证全指医药卫生ETF联接A', type: '股票指数' },
+  { code: '001214', name: '华泰柏瑞中证500ETF联接A', type: '股票指数' },
+  { code: '001469', name: '广发中证全指金融地产ETF联接A', type: '股票指数' },
+  { code: '001556', name: '天弘中证500指数增强A', type: '股票指数' },
+  { code: '001595', name: '天弘中证银行ETF联接A', type: '股票指数' },
+  { code: '001630', name: '天弘中证食品饮料ETF联接A', type: '股票指数' },
+  { code: '001717', name: '工银瑞信前沿医疗股票A', type: '股票型' },
+  { code: '002001', name: '华夏回报混合A', type: '混合型' },
+  { code: '002077', name: '浙商聚盈信用债债券A', type: '债券型' },
+  { code: '002216', name: '广发中债7-10年国开债指数A', type: '债券指数' },
+  { code: '002237', name: '中银惠利纯债半年定期开放债券', type: '债券型' },
+  { code: '002421', name: '华安创业板指数增强A', type: '股票指数' },
+  { code: '002656', name: '南方创业板ETF联接A', type: '股票指数' },
+  { code: '002903', name: '广发中证500ETF联接A', type: '股票指数' },
+  { code: '002987', name: '广发沪深300ETF联接A', type: '股票指数' },
+  { code: '003318', name: '景顺长城中证500行业中性低波动指数', type: '股票指数' },
+  { code: '003376', name: '广发中证全指汽车指数A', type: '股票指数' },
+  { code: '003765', name: '广发中证全指信息技术ETF联接A', type: '股票指数' },
+  { code: '003948', name: '建信纳斯达克100指数A', type: 'QDII' },
+  { code: '004346', name: '华夏中证500指数增强A', type: '股票指数' },
+  { code: '004752', name: '广发中证传媒ETF联接A', type: '股票指数' },
+  { code: '004997', name: '广发中证基建工程ETF联接A', type: '股票指数' },
+  { code: '005223', name: '广发中证全指证券公司ETF联接A', type: '股票指数' },
+  { code: '005827', name: '易方达蓝筹精选混合', type: '混合型' },
+  { code: '006104', name: '鹏华安益增强混合', type: '混合型' },
+  { code: '006486', name: '广发中证1000指数A', type: '股票指数' },
+  { code: '007380', name: '华宝科技先锋混合', type: '混合型' },
+  { code: '008888', name: '华夏中证5G通信主题ETF联接A', type: '股票指数' },
+  { code: '009314', name: '广发中证央企创新驱动ETF联接A', type: '股票指数' },
+  { code: '009929', name: '华夏创新前沿股票', type: '股票型' },
+  { code: '010169', name: '华泰柏瑞中证光伏产业ETF联接A', type: '股票指数' },
+  { code: '010363', name: '易方达中证新能源ETF联接A', type: '股票指数' },
+  { code: '010448', name: '天弘中证光伏产业指数A', type: '股票指数' },
+  { code: '011103', name: '易方达长期价值混合', type: '混合型' },
+  { code: '011530', name: '富国沪深300指数增强A', type: '股票指数' },
+  { code: '012348', name: '广发中证稀有金属ETF联接A', type: '股票指数' },
+  { code: '012584', name: '华安中证新能源汽车ETF联接A', type: '股票指数' },
+  { code: '012696', name: '汇添富中证芯片产业指数增强A', type: '股票指数' },
+  { code: '012860', name: '嘉实中证稀土产业ETF联接A', type: '股票指数' },
+  { code: '013816', name: '易方达中证人工智能主题ETF联接A', type: '股票指数' },
+  { code: '015671', name: '嘉实中证高端装备细分50ETF联接A', type: '股票指数' },
+  { code: '016858', name: '广发中证上海环交所碳中和ETF联接A', type: '股票指数' },
+  { code: '501009', name: '汇添富中证生物科技指数A', type: '股票指数' },
+  { code: '501010', name: '汇添富中证精准医疗指数A', type: '股票指数' },
+  { code: '501050', name: '华夏上证50ETF联接A', type: '股票指数' },
+  { code: '501090', name: '华宝中证消费龙头指数A', type: '股票指数' },
+  { code: '510050', name: '华夏上证50ETF', type: 'ETF' },
+  { code: '510300', name: '华泰柏瑞沪深300ETF', type: 'ETF' },
+  { code: '510310', name: '易方达沪深300ETF', type: 'ETF' },
+  { code: '510330', name: '华夏沪深300ETF', type: 'ETF' },
+  { code: '510500', name: '南方中证500ETF', type: 'ETF' },
+  { code: '510880', name: '华泰柏瑞红利ETF', type: 'ETF' },
+  { code: '511010', name: '国泰上证10年期国债ETF', type: 'ETF' },
+  { code: '512000', name: '华宝中证全指证券公司ETF', type: 'ETF' },
+  { code: '512010', name: '易方达沪深300医药卫生ETF', type: 'ETF' },
+  { code: '512100', name: '南方中证1000ETF', type: 'ETF' },
+  { code: '512170', name: '华宝中证医疗ETF', type: 'ETF' },
+  { code: '512200', name: '易方达中证全指房地产ETF', type: 'ETF' },
+  { code: '512480', name: '国联安中证全指半导体ETF', type: 'ETF' },
+  { code: '512660', name: '国泰中证军工ETF', type: 'ETF' },
+  { code: '512690', name: '鹏华中证酒ETF', type: 'ETF' },
+  { code: '512800', name: '华宝中证银行ETF', type: 'ETF' },
+  { code: '512880', name: '国泰中证全指证券公司ETF', type: 'ETF' },
+  { code: '512980', name: '广发中证传媒ETF', type: 'ETF' },
+  { code: '513050', name: '易方达中证海外中国互联网50ETF', type: 'QDII-ETF' },
+  { code: '513100', name: '国泰纳斯达克100ETF', type: 'QDII-ETF' },
+  { code: '513130', name: '华泰柏瑞南方东英恒生科技ETF', type: 'QDII-ETF' },
+  { code: '513180', name: '华夏恒生科技ETF', type: 'QDII-ETF' },
+  { code: '513300', name: '纳斯达克ETF', type: 'QDII-ETF' },
+  { code: '513500', name: '博时标普500ETF', type: 'QDII-ETF' },
+  { code: '515030', name: '华夏中证新能源汽车ETF', type: 'ETF' },
+  { code: '515050', name: '华夏中证5G通信主题ETF', type: 'ETF' },
+  { code: '515700', name: '易方达中证光伏产业ETF', type: 'ETF' },
+  { code: '518880', name: '华安黄金易ETF', type: 'ETF' },
+  { code: '159601', name: '华夏MSCI中国A50互联互通ETF', type: 'ETF' },
+  { code: '159915', name: '易方达创业板ETF', type: 'ETF' },
+  { code: '159928', name: '汇添富中证主要消费ETF', type: 'ETF' },
+  { code: '159938', name: '广发中证全指医药卫生ETF', type: 'ETF' },
+  { code: '159939', name: '广发中证全指信息技术ETF', type: 'ETF' },
+  { code: '159940', name: '广发中证全指金融地产ETF', type: 'ETF' },
+  { code: '159949', name: '华安创业板50ETF', type: 'ETF' },
+  { code: '159952', name: '广发创业板ETF', type: 'ETF' },
+  { code: '159967', name: '华夏创成长ETF', type: 'ETF' },
+  { code: '159981', name: '建信易盛能源化工期货ETF', type: 'ETF' },
+  { code: '159985', name: '华夏饲料豆粕期货ETF', type: 'ETF' },
+  { code: '159990', name: '天弘中证中美互联网指数A', type: 'QDII' },
+  { code: '160119', name: '南方中证500ETF联接A', type: '股票指数' },
+  { code: '160706', name: '嘉实沪深300指数A', type: '股票指数' },
+  { code: '161017', name: '富国中证500指数增强', type: '股票指数' },
+  { code: '161039', name: '富国中证1000指数增强A', type: '股票指数' },
+  { code: '161725', name: '招商中证白酒指数A', type: '股票指数' },
+  { code: '163406', name: '兴全合润混合', type: '混合型' },
+  { code: '164906', name: '交银中证海外中国互联网指数', type: 'QDII' },
+  { code: '270002', name: '广发稳健增长混合A', type: '混合型' },
+  { code: '377016', name: '摩根士丹利华鑫资源优选混合', type: '混合型' },
+  { code: '519671', name: '银河沪深300价值指数A', type: '股票指数' },
+  { code: '519732', name: '交银定期支付双息平衡混合', type: '混合型' },
+  { code: '519915', name: '富国消费主题混合A', type: '混合型' },
+  { code: '540003', name: '汇丰晋信动态策略混合A', type: '混合型' },
+  { code: '540006', name: '汇丰晋信大盘股票A', type: '股票型' },
+  { code: '550001', name: '信诚四季红混合', type: '混合型' },
+];
 
 // ============================================
 // 基金净值 API 服务
@@ -52,8 +179,10 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
  */
 async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null> {
   try {
-    // 正确的东方财富API格式：使用 Fcodes 参数（支持批量查询）
-    const url = `${API_BASE}/api/eastmoney/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`;
+    // 根据环境使用不同的 URL
+    const url = isGitHubPages
+      ? `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`
+      : `${API_BASE}/api/eastmoney/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`;
     
     console.log('[API] Fetching:', url);
     const response = await fetch(url);
@@ -223,6 +352,17 @@ export async function searchByCode(code: string): Promise<FundSearchResult[]> {
   }
   
   // 3. 本地没有，尝试从API搜索
+  // GitHub Pages 环境下使用预置数据
+  if (isGitHubPages) {
+    const presetResults = PRESET_FUNDS.filter(f => 
+      f.code.toLowerCase().startsWith(trimmedCode.toLowerCase())
+    );
+    if (presetResults.length > 0) {
+      await saveFundCache(presetResults);
+    }
+    return presetResults.slice(0, 10);
+  }
+  
   try {
     const apiResults = await searchFromEastMoney(trimmedCode);
     // 过滤只保留代码前缀匹配的结果（如输入000，匹配000001，不匹配100000）
@@ -263,6 +403,17 @@ export async function searchByName(name: string): Promise<FundSearchResult[]> {
   }
   
   // 3. 本地没有，尝试从API搜索
+  // GitHub Pages 环境下使用预置数据
+  if (isGitHubPages) {
+    const presetResults = PRESET_FUNDS.filter(f => 
+      f.name.toLowerCase().includes(trimmedName.toLowerCase())
+    );
+    if (presetResults.length > 0) {
+      await saveFundCache(presetResults);
+    }
+    return presetResults.slice(0, 10);
+  }
+  
   try {
     const apiResults = await searchFromEastMoney(trimmedName);
     // 过滤只保留名称匹配的结果
@@ -397,8 +548,13 @@ async function searchLocalFunds(keyword: string): Promise<FundSearchResult[]> {
 
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
   try {
-    const url = `${API_BASE}/api/suggest/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
+    // 根据环境使用不同的 URL
+    const url = isGitHubPages
+      ? `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`
+      : `${API_BASE}/api/suggest/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
+    
     console.log('[Search] API URL:', url);
+    console.log('[Search] isGitHubPages:', isGitHubPages);
     
     const response = await fetch(url);
     console.log('[Search] API Response:', response.status, response.statusText);
