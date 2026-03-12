@@ -784,6 +784,12 @@ export async function fetchFundHistory(
   pageIndex: number = 1,
   startDate: string = ''
 ): Promise<FundHistoryData[]> {
+  // GitHub Pages 环境下使用模拟数据
+  if (isGitHubPages) {
+    console.log('[GitHub Pages] 使用模拟历史净值数据:', fundCode);
+    return generateMockHistoryData(fundCode, pageSize);
+  }
+  
   try {
     const url = `${API_BASE}/api/history/f10/lsjz?fundCode=${fundCode}&pageIndex=${pageIndex}&pageSize=${pageSize}&startDate=${startDate}&endDate=&_=${Date.now()}`;
     console.log('[API] fetchFundHistory URL:', url);
@@ -821,6 +827,41 @@ export async function fetchFundHistory(
     console.error(`[API] 获取历史净值失败 ${fundCode}:`, error);
     return [];
   }
+}
+
+/**
+ * 生成模拟历史净值数据（GitHub Pages 环境使用）
+ */
+function generateMockHistoryData(fundCode: string, days: number): FundHistoryData[] {
+  const result: FundHistoryData[] = [];
+  const baseNav = 1.0 + Math.random() * 2;
+  let currentNav = baseNav;
+  
+  const today = new Date();
+  
+  for (let i = 0; i < days; i++) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    
+    // 跳过周末
+    if (date.getDay() === 0 || date.getDay() === 6) {
+      continue;
+    }
+    
+    const changeRate = (Math.random() - 0.5) * 4; // -2% 到 +2%
+    currentNav = currentNav * (1 + changeRate / 100);
+    
+    result.push({
+      date: date.toISOString().split('T')[0],
+      nav: Number(currentNav.toFixed(4)),
+      accNav: Number(currentNav.toFixed(4)),
+      dailyChangeRate: Number(changeRate.toFixed(2)),
+      buyStatus: '开放',
+      sellStatus: '开放',
+    });
+  }
+  
+  return result;
 }
 
 export function clearNavCache(): void {
