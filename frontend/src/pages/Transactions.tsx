@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading, Picker } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
 
-import { useTransactions, deleteTransaction, addTransaction } from '../hooks/useSync';
+import { useTransactions, updateLocalHoldingAfterTransaction } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import { searchByCode, FundSearchResult, fetchFundNav } from '../services/fundApi';
-import { updateLocalHoldingAfterTransaction } from '../services/syncService';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
@@ -43,7 +42,7 @@ const Transactions: React.FC = () => {
   const [activeStatus, setActiveStatus] = useState<'all' | 'pending' | 'completed'>('all');
   const [selectedFundCode, setSelectedFundCode] = useState<string>(fundCodeFromUrl || 'all');
   const [showFundPicker, setShowFundPicker] = useState(false);
-  const { transactions, refresh } = useTransactions();
+  const { transactions, loading, saveTransaction, removeTransaction } = useTransactions();
   
   // 监听 hash 变化
   useEffect(() => {
@@ -186,9 +185,9 @@ const Transactions: React.FC = () => {
       content: '确定要删除这条交易记录吗？',
       onConfirm: async () => {
         try {
-          await deleteTransaction(id);
+          await removeTransaction(id);
           Toast.show({ content: '删除成功', position: 'bottom' });
-          refresh();
+          window.location.reload();
         } catch (error) {
           Toast.show({ content: '删除失败', position: 'bottom' });
         }
@@ -270,7 +269,7 @@ const Transactions: React.FC = () => {
           content: `已处理 ${processedCount} 笔在途交易`, 
           position: 'bottom' 
         });
-        refresh();
+        window.location.reload();
       }
     } catch (error) {
       console.error('[Pending] 处理在途交易失败:', error);
@@ -373,7 +372,7 @@ const Transactions: React.FC = () => {
         finalPrice = isPending ? 0 : (tradePrice || 0);
       }
 
-      await addTransaction({
+      await saveTransaction({
         fundId: fund.id,
         fundCode: fund.code,
         fundName: fund.name,
@@ -384,7 +383,6 @@ const Transactions: React.FC = () => {
         price: finalPrice,
         shares: shares,
         fee: 0,
-        remark: values.remark,
         status: isPending ? 'pending' : 'completed',
       });
 
@@ -404,7 +402,7 @@ const Transactions: React.FC = () => {
       resetSearch();
       form.resetFields();
       setCurrentTradeType('buy');
-      refresh();
+      window.location.reload();
     } catch (error) {
       console.error('Add transaction error:', error);
       Toast.show({ content: '添加失败', position: 'bottom' });

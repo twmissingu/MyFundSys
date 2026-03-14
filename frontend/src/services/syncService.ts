@@ -51,17 +51,13 @@ interface DbTransaction {
 /**
  * 将前端 Holding 转换为数据库格式
  */
-function toDbHolding(holding: Holding): Omit<DbHolding, 'id' | 'created_at' | 'updated_at'> {
+function toDbHolding(holding: Holding): HoldingsInsert {
   return {
     fund_code: holding.fundCode,
     fund_name: holding.fundName,
     shares: holding.shares,
     avg_nav: holding.avgCost,
     total_cost: holding.totalCost,
-    current_nav: holding.currentNav,
-    market_value: holding.currentValue,
-    profit: holding.profit,
-    profit_rate: holding.profitRate,
   };
 }
 
@@ -89,7 +85,7 @@ function fromDbHolding(db: DbHolding): Holding {
 /**
  * 将前端 Transaction 转换为数据库格式
  */
-function toDbTransaction(tx: Transaction): Omit<DbTransaction, 'id' | 'created_at' | 'updated_at'> {
+function toDbTransaction(tx: Transaction): TransactionsInsert {
   return {
     fund_code: tx.fundCode,
     fund_name: tx.fundName,
