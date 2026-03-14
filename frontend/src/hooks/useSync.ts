@@ -14,6 +14,11 @@ import {
 } from '../services/syncService';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Fund, Holding, Transaction, Strategy } from '../types';
+import type { Database } from '../types/database';
+
+// 类型别名
+type HoldingsInsert = Database['public']['Tables']['holdings']['Insert'];
+type TransactionsInsert = Database['public']['Tables']['transactions']['Insert'];
 
 // ============================================
 // 同步状态 Hook
@@ -151,13 +156,14 @@ export function useHoldings() {
     
     // 同步到 Supabase
     if (isSupabaseConfigured()) {
-      await supabase.from('holdings').insert([{
+      const payload: HoldingsInsert = {
         fund_code: holding.fundCode,
         fund_name: holding.fundName,
         shares: holding.shares,
         avg_nav: holding.avgCost,
         total_cost: holding.totalCost,
-      } as any]);
+      };
+      await supabase.from('holdings').insert([payload]);
     }
     
     return id;
@@ -223,7 +229,7 @@ export function useTransactions() {
     
     // 同步到 Supabase
     if (isSupabaseConfigured()) {
-      await supabase.from('transactions').insert([{
+      const payload: TransactionsInsert = {
         fund_code: transaction.fundCode,
         fund_name: transaction.fundName,
         type: transaction.type,
@@ -233,7 +239,8 @@ export function useTransactions() {
         fee: transaction.fee || 0,
         date: transaction.date,
         status: transaction.status || 'completed',
-      } as any]);
+      };
+      await supabase.from('transactions').insert([payload]);
     }
     
     return id;

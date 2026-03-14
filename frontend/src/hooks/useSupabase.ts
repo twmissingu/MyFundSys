@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Holding, Transaction } from '../types';
+import type { Database } from '../types/database';
+
+// 类型别名
+type HoldingsInsert = Database['public']['Tables']['holdings']['Insert'];
+type TransactionsInsert = Database['public']['Tables']['transactions']['Insert'];
 
 // ============================================
 // 认证相关 Hooks (简化版 - 本地密码验证)
@@ -177,7 +182,7 @@ export async function addHolding(holding: Omit<Holding, 'id' | 'createdAt' | 'up
     throw new Error('Supabase 未配置');
   }
 
-  const payload = {
+  const payload: HoldingsInsert = {
     fund_code: holding.fundCode,
     fund_name: holding.fundName,
     shares: holding.shares,
@@ -187,7 +192,7 @@ export async function addHolding(holding: Omit<Holding, 'id' | 'createdAt' | 'up
 
   const { data, error } = await supabase
     .from('holdings')
-    .insert([payload as any])
+    .insert([payload])
     .select()
     .single();
 
@@ -201,7 +206,7 @@ export async function addTransaction(transaction: Omit<Transaction, 'id' | 'crea
     throw new Error('Supabase 未配置');
   }
 
-  const payload = {
+  const payload: TransactionsInsert = {
     fund_code: transaction.fundCode,
     fund_name: transaction.fundName,
     type: transaction.type,
@@ -215,7 +220,7 @@ export async function addTransaction(transaction: Omit<Transaction, 'id' | 'crea
 
   const { data, error } = await supabase
     .from('transactions')
-    .insert([payload as any])
+    .insert([payload])
     .select()
     .single();
 
