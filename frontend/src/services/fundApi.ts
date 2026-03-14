@@ -183,12 +183,14 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
     if (isSupabaseConfigured()) {
       console.log('[API] 使用 Supabase Edge Function:', fundCode);
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const edgeUrl = `${supabaseUrl}/functions/v1/fund-nav/${fundCode}`;
       
       const response = await fetch(edgeUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
         },
       });
       
@@ -558,12 +560,14 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
     if (isSupabaseConfigured()) {
       console.log('[Search] 使用 Supabase Edge Function');
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const edgeUrl = `${supabaseUrl}/functions/v1/fund-search?keyword=${encodeURIComponent(keyword)}`;
       
       const response = await fetch(edgeUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
         },
       });
       
