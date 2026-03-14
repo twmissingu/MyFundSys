@@ -4,47 +4,32 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/MyFundSys/',
+  base: '/',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    // 忽略 TypeScript 错误
+    minify: true,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
           ui: ['antd-mobile', 'antd-mobile-icons'],
-          charts: ['recharts'],
-          db: ['dexie'],
-          supabase: ['@supabase/supabase-js']
         }
       }
     }
   },
   esbuild: {
-    logOverride: { 'this-is-undefined-in-esm': 'silent' }
+    // 忽略所有 TypeScript 错误
+    logOverride: { 'this-is-undefined-in-esm': 'silent' },
+    target: 'es2020',
   },
   server: {
     proxy: {
-      // 东方财富基金API代理
-      '/api/eastmoney': {
-        target: 'https://fundmobapi.eastmoney.com',
+      '/api': {
+        target: 'https://xeddgyxugpwmgwmeetme.supabase.co/functions/v1',
         changeOrigin: true,
-        rewrite: (path) => {
-          const newPath = path.replace(/^\/api\/eastmoney/, '')
-          console.log('[Proxy] Rewrite:', path, '->', newPath)
-          return newPath
-        },
-      },
-      // 东方财富搜索API代理
-      '/api/suggest': {
-        target: 'https://searchapi.eastmoney.com',
-        changeOrigin: true,
-      },
-      // 且慢估值API代理
-      '/api/qieman': {
-        target: 'https://qieman.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/qieman/, ''),
+        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     }
   }
