@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, List, Toast, SwipeAction, Tabs, Tag, Dialog } from 'antd-mobile';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
-import { useHoldings, deleteHolding } from '../hooks/useSync';
+import { useHoldings } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import { formatMoney, formatPercent } from '../utils';
 import './Layout.css';
@@ -10,7 +10,7 @@ import './Layout.css';
 const COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fadb14'];
 
 const Holdings: React.FC = () => {
-  const { holdings, refresh } = useHoldings();
+  const { holdings, loading, removeHolding } = useHoldings();
   const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
   const [activeTab, setActiveTab] = useState('list');
 
@@ -99,9 +99,9 @@ const Holdings: React.FC = () => {
       content: '确定要删除这个持仓吗？',
       onConfirm: async () => {
         try {
-          await deleteHolding(id);
-          Toast.show({ content: '删除成功', position: 'bottom' });
-          refresh();
+          await removeHolding(id);
+            Toast.show({ content: '删除成功', position: 'bottom' });
+            window.location.reload();
         } catch (error) {
           Toast.show({ content: '删除失败', position: 'bottom' });
         }

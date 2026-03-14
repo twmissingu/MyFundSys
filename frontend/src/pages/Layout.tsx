@@ -18,7 +18,8 @@ import Articles from './Articles';
 import Strategy from './Strategy';
 import Settings from './Settings';
 import AuthPage from './AuthPage';
-import { useAuthStatus, signOut, useSyncStatus } from '../hooks/useSync';
+import { useSyncStatus } from '../hooks/useSync';
+import { useAuthStatus, signOut } from '../hooks/useSupabase';
 import { isSupabaseConfigured } from '../lib/supabase';
 import './Layout.css';
 
@@ -26,7 +27,7 @@ const Layout: React.FC = () => {
   const [activeKey, setActiveKey] = useState('dashboard');
   const [currentView, setCurrentView] = useState<{ type: string; params?: any }>({ type: 'tab' });
   const { isAuthenticated, loading } = useAuthStatus();
-  const syncStatus = useSyncStatus();
+  const { status: syncStatus } = useSyncStatus();
   const isConfigured = isSupabaseConfigured();
 
   // 监听 hash 变化
