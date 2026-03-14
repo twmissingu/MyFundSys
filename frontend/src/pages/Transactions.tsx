@@ -249,12 +249,21 @@ const Transactions: React.FC = () => {
             });
             
             // 更新持仓
-            await updateLocalHoldingAfterTransaction({
-              ...transaction,
-              price: tradePrice,
-              shares: shares,
-              amount: amount,
-            });
+            const existingHolding = await db.holdings.where('fundCode').equals(transaction.fundCode).first();
+            const updatedHolding = updateLocalHoldingAfterTransaction(
+              existingHolding,
+              {
+                ...transaction,
+                price: tradePrice,
+                shares: shares,
+                amount: amount,
+              }
+            );
+            if (existingHolding) {
+              await db.holdings.update(existingHolding.id, updatedHolding);
+            } else {
+              await db.holdings.add(updatedHolding);
+            }
             
             processedCount++;
             console.log(`[Pending] 处理完成: ${transaction.fundCode}, 确认日: ${confirmDate}, 使用净值: ${navDate}`);

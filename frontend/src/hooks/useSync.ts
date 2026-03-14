@@ -179,7 +179,7 @@ export function useHoldings() {
         avg_nav: holding.avgCost,
         total_cost: holding.totalCost,
       };
-      await supabase.from('holdings').insert([payload]);
+      await supabase.from('holdings').insert([payload as any]);
     }
     
     return id;
@@ -256,7 +256,7 @@ export function useTransactions() {
         date: transaction.date,
         status: transaction.status || 'completed',
       };
-      await supabase.from('transactions').insert([payload]);
+      await supabase.from('transactions').insert([payload as any]);
     }
     
     return id;
