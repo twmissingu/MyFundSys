@@ -182,20 +182,33 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
     // 优先使用 Supabase Edge Function
     if (isSupabaseConfigured()) {
       console.log('[API] 使用 Supabase Edge Function:', fundCode);
-      const { data, error } = await supabase.functions.invoke('fund-nav', {
-        body: { code: fundCode },
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const edgeUrl = `${supabaseUrl}/functions/v1/fund-nav/${fundCode}`;
+      
+      const response = await fetch(edgeUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
-      if (error) throw error;
-      if (data) {
-        return {
-          code: data.code,
-          name: data.name,
-          nav: data.nav,
-          navDate: data.navDate,
-          dailyChange: data.estimateNav ? data.estimateNav - data.nav : 0,
-          dailyChangeRate: data.estimateRate || 0,
-        };
+      
+      if (!response.ok) {
+        throw new Error(`Edge Function 返回错误: ${response.status}`);
       }
+      
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      return {
+        code: data.code,
+        name: data.name,
+        nav: data.nav,
+        navDate: data.navDate,
+        dailyChange: data.estimateNav ? data.estimateNav - data.nav : 0,
+        dailyChangeRate: data.estimateRate || 0,
+      };
     }
     
     // 降级：直接调用东方财富API（可能有CORS问题）
@@ -544,10 +557,25 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
     // 优先使用 Supabase Edge Function
     if (isSupabaseConfigured()) {
       console.log('[Search] 使用 Supabase Edge Function');
-      const { data, error } = await supabase.functions.invoke('fund-search', {
-        body: { keyword },
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const edgeUrl = `${supabaseUrl}/functions/v1/fund-search?keyword=${encodeURIComponent(keyword)}`;
+      
+      const response = await fetch(edgeUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
-      if (error) throw error;
+      
+      if (!response.ok) {
+        throw new Error(`Edge Function 返回错误: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
       return data || [];
     }
     
