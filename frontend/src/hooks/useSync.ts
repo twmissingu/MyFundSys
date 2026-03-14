@@ -27,7 +27,9 @@ type TransactionsInsert = Database['public']['Tables']['transactions']['Insert']
 export interface SyncStatus {
   isOnline: boolean;
   isConfigured: boolean;
+  isSyncing: boolean;
   lastSync: Date | null;
+  lastSyncTime: Date | null;
   pendingChanges: number;
 }
 
@@ -35,7 +37,9 @@ export function useSyncStatus() {
   const [status, setStatus] = useState<SyncStatus>({
     isOnline: navigator.onLine,
     isConfigured: isSupabaseConfigured(),
+    isSyncing: false,
     lastSync: null,
+    lastSyncTime: null,
     pendingChanges: 0,
   });
 
@@ -55,6 +59,8 @@ export function useSyncStatus() {
   const triggerSync = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
     
+    setStatus(s => ({ ...s, isSyncing: true }));
+    
     try {
       // 从本地数据库获取数据并同步到 Supabase
       const holdings = await db.holdings.toArray();
@@ -65,13 +71,23 @@ export function useSyncStatus() {
         syncTransactionsToSupabase(transactions),
       ]);
       
-      setStatus(s => ({ ...s, lastSync: new Date() }));
+      setStatus(s => ({ 
+        ...s, 
+        isSyncing: false,
+        lastSync: new Date(),
+        lastSyncTime: new Date(),
+        pendingChanges: 0,
+      }));
     } catch (error) {
       console.error('同步失败:', error);
+      setStatus(s => ({ ...s, isSyncing: false }));
     }
   }, []);
 
-  return { status, triggerSync };
+  // 添加 triggerFullSync 作为 triggerSync 的别名
+  const triggerFullSync = triggerSync;
+
+  return { status, triggerSync, triggerFullSync };
 }
 
 // ============================================
@@ -296,4 +312,32 @@ export function updateLocalHoldingAfterTransaction(
     avgCost: newShares > 0 ? newTotalCost / newShares : 0,
     updatedAt: new Date().toISOString(),
   };
+}
+
+// ============================================
+// 策略 Hooks
+// ============================================
+
+export function useStrategies() {
+  const [strategies, setStrategies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadStrategies = async () => {
+      try {
+        // 从本地数据库获取策略
+        const data = await db.strategies?.toArray() || [];
+        setStrategies(data);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadStrategies();
+  }, []);
+
+  const refresh = () => {
+    window.location.reload();
+  };
+
+  return { strategies, loading, refresh };
 }
