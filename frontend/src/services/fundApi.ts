@@ -175,18 +175,34 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
 
 /**
  * 从东方财富网获取基金净值
- * 使用正确的 API 格式：Fcodes 参数支持批量查询
+ * 优先使用 Supabase Edge Function，解决 CORS 问题
  */
 async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null> {
   try {
-    // 根据环境使用不同的 URL
-    const url = isGitHubPages
-      ? `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`
-      : `${API_BASE}/api/eastmoney/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`;
+    // 优先使用 Supabase Edge Function
+    if (isSupabaseConfigured()) {
+      console.log('[API] 使用 Supabase Edge Function:', fundCode);
+      const { data, error } = await supabase.functions.invoke('fund-nav', {
+        body: { code: fundCode },
+      });
+      if (error) throw error;
+      if (data) {
+        return {
+          code: data.code,
+          name: data.name,
+          nav: data.nav,
+          navDate: data.navDate,
+          dailyChange: data.estimateNav ? data.estimateNav - data.nav : 0,
+          dailyChangeRate: data.estimateRate || 0,
+        };
+      }
+    }
     
-    console.log('[API] Fetching:', url);
+    // 降级：直接调用东方财富API（可能有CORS问题）
+    const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`;
+    console.log('[API] 直接调用:', url);
+    
     const response = await fetch(url);
-
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -197,44 +213,21 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
       throw new Error(result.ErrMsg || 'API返回错误或无数据');
     }
 
-    // 返回的是数组，取第一个
     const data = result.Datas[0];
-    
-    // 解析涨跌幅 - 使用 NAVCHGRT（日涨跌幅）
     const dailyChangeRate = parseFloat(data.NAVCHGRT || '0');
     const nav = parseFloat(data.NAV || '0');
     const dailyChange = nav * dailyChangeRate / 100;
-    
-    // 解析扩展字段
-    const accNav = data.ACCNAV ? parseFloat(data.ACCNAV) : undefined;
-    const newPrice = data.NEWPRICE ? parseFloat(data.NEWPRICE) : undefined;
-    const priceChangeRate = data.CHANGERATIO ? parseFloat(data.CHANGERATIO) : undefined;
-    const fundFlow = data.ZJL ? parseFloat(data.ZJL) : undefined;
-    const marketTime = data.HQDATE || undefined;
 
     return {
       code: fundCode,
       name: data.SHORTNAME || getFundNameByCode(fundCode),
       nav: Number(nav.toFixed(4)),
-      accNav: accNav ? Number(accNav.toFixed(4)) : undefined,
       navDate: data.PDATE || data.NAVDATE || new Date().toISOString().split('T')[0],
       dailyChange: Number(dailyChange.toFixed(4)),
       dailyChangeRate: Number(dailyChangeRate.toFixed(2)),
-      // 扩展字段
-      newPrice,
-      priceChangeRate: priceChangeRate ? Number(priceChangeRate.toFixed(2)) : undefined,
-      fundFlow: fundFlow ? Number(fundFlow.toFixed(2)) : undefined,
-      marketTime,
     };
   } catch (error) {
-    console.error(`[API] 东方财富API获取失败 ${fundCode}:`, error);
-    
-    // 开发环境下代理服务器未启动时使用模拟数据
-    if (import.meta.env.DEV) {
-      console.log(`[DEV] 使用模拟数据: ${fundCode}`);
-      return generateMockFundData(fundCode);
-    }
-    
+    console.error(`[API] 获取基金净值失败 ${fundCode}:`, error);
     return null;
   }
 }
@@ -548,17 +541,21 @@ async function searchLocalFunds(keyword: string): Promise<FundSearchResult[]> {
 
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
   try {
-    // 根据环境使用不同的 URL
-    const url = isGitHubPages
-      ? `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`
-      : `${API_BASE}/api/suggest/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
+    // 优先使用 Supabase Edge Function
+    if (isSupabaseConfigured()) {
+      console.log('[Search] 使用 Supabase Edge Function');
+      const { data, error } = await supabase.functions.invoke('fund-search', {
+        body: { keyword },
+      });
+      if (error) throw error;
+      return data || [];
+    }
     
-    console.log('[Search] API URL:', url);
-    console.log('[Search] isGitHubPages:', isGitHubPages);
+    // 降级：直接调用东方财富API（可能有CORS问题）
+    const url = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
+    console.log('[Search] 直接调用 API:', url);
     
     const response = await fetch(url);
-    console.log('[Search] API Response:', response.status, response.statusText);
-    
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -567,8 +564,6 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
     
     if (result && result.QuotationCodeTable && result.QuotationCodeTable.Data) {
       const data = result.QuotationCodeTable.Data;
-      
-      // 过滤只保留基金（Classify为OTCFUND、FUND或Fund）
       return data
         .filter((item: any) => item.Code && item.Name)
         .filter((item: any) => item.Classify === 'OTCFUND' || item.Classify === 'FUND' || item.Classify === 'Fund')
@@ -581,7 +576,7 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
     
     return [];
   } catch (error) {
-    console.error('[API] 东方财富搜索失败:', error);
+    console.error('[API] 基金搜索失败:', error);
     return [];
   }
 }

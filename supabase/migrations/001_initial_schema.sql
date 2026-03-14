@@ -5,8 +5,16 @@
 -- 启用 UUID 扩展
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- 删除已存在的表（如果存在）
+DROP TABLE IF EXISTS favorite_funds CASCADE;
+DROP TABLE IF EXISTS holdings CASCADE;
+DROP TABLE IF EXISTS transactions CASCADE;
+
+-- 删除已存在的函数（如果存在）
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+
 -- 交易记录表
-CREATE TABLE IF NOT EXISTS transactions (
+CREATE TABLE transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     fund_code VARCHAR(10) NOT NULL,
     fund_name VARCHAR(100) NOT NULL,
@@ -22,7 +30,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 
 -- 持仓表
-CREATE TABLE IF NOT EXISTS holdings (
+CREATE TABLE holdings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     fund_code VARCHAR(10) NOT NULL UNIQUE,
     fund_name VARCHAR(100) NOT NULL,
@@ -38,7 +46,7 @@ CREATE TABLE IF NOT EXISTS holdings (
 );
 
 -- 基金收藏表
-CREATE TABLE IF NOT EXISTS favorite_funds (
+CREATE TABLE favorite_funds (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     fund_code VARCHAR(10) NOT NULL UNIQUE,
     fund_name VARCHAR(100) NOT NULL,
@@ -47,12 +55,12 @@ CREATE TABLE IF NOT EXISTS favorite_funds (
 );
 
 -- 创建索引
-CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date DESC);
-CREATE INDEX IF NOT EXISTS idx_transactions_fund_code ON transactions(fund_code);
-CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
-CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+CREATE INDEX idx_transactions_date ON transactions(date DESC);
+CREATE INDEX idx_transactions_fund_code ON transactions(fund_code);
+CREATE INDEX idx_transactions_type ON transactions(type);
+CREATE INDEX idx_transactions_status ON transactions(status);
 
--- 创建更新时间触发器
+-- 创建更新时间触发器函数
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -61,6 +69,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+-- 创建触发器
 CREATE TRIGGER update_transactions_updated_at
     BEFORE UPDATE ON transactions
     FOR EACH ROW

@@ -1,8 +1,5 @@
 # Supabase 项目配置
-
-[project]
-id = "myfundsys"
-name = "MyFundSys"
+# https://supabase.com/docs/guides/cli/config
 
 [api]
 port = 54321
