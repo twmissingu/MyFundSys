@@ -23,27 +23,20 @@ export interface Database {
           updated_at: string;
         };
         Insert: {
+          id?: string;
           fund_code: string;
           fund_name: string;
           type: 'buy' | 'sell';
           shares: number;
           nav: number;
           amount: number;
-          fee: number;
-          date: string;
-          status: 'pending' | 'completed';
-        };
-        Update: {
-          fund_code?: string;
-          fund_name?: string;
-          type?: 'buy' | 'sell';
-          shares?: number;
-          nav?: number;
-          amount?: number;
           fee?: number;
-          date?: string;
+          date: string;
           status?: 'pending' | 'completed';
+          created_at?: string;
+          updated_at?: string;
         };
+        Update: Partial<Database['public']['Tables']['transactions']['Insert']>;
       };
       holdings: {
         Row: {
@@ -61,23 +54,20 @@ export interface Database {
           updated_at: string;
         };
         Insert: {
+          id?: string;
           fund_code: string;
           fund_name: string;
           shares: number;
-          avg_nav: number;
-          total_cost: number;
-        };
-        Update: {
-          fund_code?: string;
-          fund_name?: string;
-          shares?: number;
           avg_nav?: number;
           total_cost?: number;
           current_nav?: number | null;
           market_value?: number | null;
           profit?: number | null;
           profit_rate?: number | null;
+          created_at?: string;
+          updated_at?: string;
         };
+        Update: Partial<Database['public']['Tables']['holdings']['Insert']>;
       };
       favorite_funds: {
         Row: {
@@ -88,15 +78,13 @@ export interface Database {
           created_at: string;
         };
         Insert: {
+          id?: string;
           fund_code: string;
           fund_name: string;
           category?: string | null;
+          created_at?: string;
         };
-        Update: {
-          fund_code?: string;
-          fund_name?: string;
-          category?: string | null;
-        };
+        Update: Partial<Database['public']['Tables']['favorite_funds']['Insert']>;
       };
     };
   };

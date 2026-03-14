@@ -190,7 +190,9 @@ export async function addHolding(holding: Omit<Holding, 'id' | 'createdAt' | 'up
     total_cost: holding.totalCost,
   };
 
-  const { data, error } = await (supabase.from('holdings').insert as any)(payload)
+  const { data, error } = await supabase
+    .from('holdings')
+    .insert([payload])
     .select()
     .single();
 
@@ -216,7 +218,9 @@ export async function addTransaction(transaction: Omit<Transaction, 'id' | 'crea
     status: transaction.status || 'completed',
   };
 
-  const { data, error } = await (supabase.from('transactions').insert as any)(payload)
+  const { data, error } = await supabase
+    .from('transactions')
+    .insert([payload])
     .select()
     .single();
 

@@ -16,20 +16,42 @@ interface FundNavResponse {
 }
 
 /**
+ * 获取 CORS 头
+ */
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('origin') || '*';
+  
+  // 允许的域名列表
+  const allowedOrigins = [
+    'https://twmissingu.github.io',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
+  
+  // 检查请求的 origin 是否在允许列表中
+  const allowOrigin = allowedOrigins.includes(origin) ? origin : '*';
+  
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400',
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
  * 处理基金净值查询请求
  */
 serve(async (req: Request) => {
-  // CORS 头
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json',
-  };
+  const corsHeaders = getCorsHeaders(req);
 
   // 处理预检请求
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, { 
+      status: 204,
+      headers: corsHeaders 
+    });
   }
 
   try {

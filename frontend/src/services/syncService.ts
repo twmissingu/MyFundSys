@@ -51,13 +51,17 @@ interface DbTransaction {
 /**
  * 将前端 Holding 转换为数据库格式
  */
-function toDbHolding(holding: Holding): HoldingsInsert {
+function toDbHolding(holding: Holding): Omit<DbHolding, 'id' | 'created_at' | 'updated_at'> {
   return {
     fund_code: holding.fundCode,
     fund_name: holding.fundName,
     shares: holding.shares,
     avg_nav: holding.avgCost,
     total_cost: holding.totalCost,
+    current_nav: holding.currentNav,
+    market_value: holding.currentValue,
+    profit: holding.profit,
+    profit_rate: holding.profitRate,
   };
 }
 
@@ -85,7 +89,7 @@ function fromDbHolding(db: DbHolding): Holding {
 /**
  * 将前端 Transaction 转换为数据库格式
  */
-function toDbTransaction(tx: Transaction): TransactionsInsert {
+function toDbTransaction(tx: Transaction): Omit<DbTransaction, 'id' | 'created_at' | 'updated_at'> {
   return {
     fund_code: tx.fundCode,
     fund_name: tx.fundName,
@@ -134,8 +138,8 @@ export async function syncHoldingsToSupabase(holdings: Holding[]): Promise<SyncR
 
     // 插入新数据
     if (holdings.length > 0) {
-      const dbHoldings = holdings.map(toDbHolding);
-      const { error } = await (supabase.from('holdings').insert as any)(dbHoldings);
+      const dbHoldings: HoldingsInsert[] = holdings.map(toDbHolding);
+      const { error } = await supabase.from('holdings').insert(dbHoldings);
 
       if (error) throw error;
     }
@@ -160,8 +164,8 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
 
     // 插入新数据
     if (transactions.length > 0) {
-      const dbTransactions = transactions.map(toDbTransaction);
-      const { error } = await (supabase.from('transactions').insert as any)(dbTransactions);
+      const dbTransactions: TransactionsInsert[] = transactions.map(toDbTransaction);
+      const { error } = await supabase.from('transactions').insert(dbTransactions);
 
       if (error) throw error;
     }
