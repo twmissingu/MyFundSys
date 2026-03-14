@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import type { Fund, Holding, Transaction, Strategy } from '../types';
+import type { Holding, Transaction } from '../types';
 
 // ============================================
 // 认证相关 Hooks (简化版 - 本地密码验证)
@@ -87,7 +87,25 @@ export function useSupabaseHoldings() {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setHoldings(data || []);
+        
+        // 转换数据库格式为前端格式
+        const formattedHoldings: Holding[] = (data || []).map((item: any) => ({
+          id: item.id,
+          fundId: item.fund_code,
+          fundCode: item.fund_code,
+          fundName: item.fund_name,
+          shares: item.shares,
+          avgCost: item.avg_nav,
+          totalCost: item.total_cost,
+          currentNav: item.current_nav,
+          currentValue: item.market_value,
+          profit: item.profit,
+          profitRate: item.profit_rate,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+        }));
+        
+        setHoldings(formattedHoldings);
       } catch (err) {
         setError(err as Error);
       } finally {
@@ -121,7 +139,25 @@ export function useSupabaseTransactions() {
           .order('date', { ascending: false });
 
         if (error) throw error;
-        setTransactions(data || []);
+        
+        // 转换数据库格式为前端格式
+        const formattedTransactions: Transaction[] = (data || []).map((item: any) => ({
+          id: item.id,
+          fundId: item.fund_code,
+          fundCode: item.fund_code,
+          fundName: item.fund_name,
+          type: item.type,
+          date: item.date,
+          confirmDate: item.date,
+          amount: item.amount,
+          price: item.nav,
+          shares: item.shares,
+          fee: item.fee,
+          status: item.status,
+          createdAt: item.created_at,
+        }));
+        
+        setTransactions(formattedTransactions);
       } catch (err) {
         setError(err as Error);
       } finally {
@@ -136,14 +172,22 @@ export function useSupabaseTransactions() {
 }
 
 // 添加持仓
-export async function addHolding(holding: Omit<Holding, 'id' | 'created_at' | 'updated_at'>) {
+export async function addHolding(holding: Omit<Holding, 'id' | 'createdAt' | 'updatedAt'>) {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase 未配置');
   }
 
+  const payload = {
+    fund_code: holding.fundCode,
+    fund_name: holding.fundName,
+    shares: holding.shares,
+    avg_nav: holding.avgCost,
+    total_cost: holding.totalCost,
+  };
+
   const { data, error } = await supabase
     .from('holdings')
-    .insert([holding])
+    .insert([payload])
     .select()
     .single();
 
@@ -152,14 +196,26 @@ export async function addHolding(holding: Omit<Holding, 'id' | 'created_at' | 'u
 }
 
 // 添加交易
-export async function addTransaction(transaction: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>) {
+export async function addTransaction(transaction: Omit<Transaction, 'id' | 'createdAt'>) {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase 未配置');
   }
 
+  const payload = {
+    fund_code: transaction.fundCode,
+    fund_name: transaction.fundName,
+    type: transaction.type,
+    shares: transaction.shares,
+    nav: transaction.price,
+    amount: transaction.amount,
+    fee: transaction.fee || 0,
+    date: transaction.date,
+    status: transaction.status || 'completed',
+  };
+
   const { data, error } = await supabase
     .from('transactions')
-    .insert([transaction])
+    .insert([payload])
     .select()
     .single();
 

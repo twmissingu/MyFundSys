@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import type { Fund, Holding, Transaction } from '../types';
+import type { Holding, Transaction } from '../types';
 
 // ============================================
 // 数据同步服务
@@ -9,6 +9,114 @@ export interface SyncResult {
   success: boolean;
   message: string;
   details?: any;
+}
+
+// 数据库持仓类型
+interface DbHolding {
+  id: string;
+  fund_code: string;
+  fund_name: string;
+  shares: number;
+  avg_nav: number;
+  total_cost: number;
+  current_nav?: number;
+  market_value?: number;
+  profit?: number;
+  profit_rate?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// 数据库交易类型
+interface DbTransaction {
+  id: string;
+  fund_code: string;
+  fund_name: string;
+  type: 'buy' | 'sell';
+  shares: number;
+  nav: number;
+  amount: number;
+  fee: number;
+  date: string;
+  status: 'pending' | 'completed';
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * 将前端 Holding 转换为数据库格式
+ */
+function toDbHolding(holding: Holding): Omit<DbHolding, 'id' | 'created_at' | 'updated_at'> {
+  return {
+    fund_code: holding.fundCode,
+    fund_name: holding.fundName,
+    shares: holding.shares,
+    avg_nav: holding.avgCost,
+    total_cost: holding.totalCost,
+    current_nav: holding.currentNav,
+    market_value: holding.currentValue,
+    profit: holding.profit,
+    profit_rate: holding.profitRate,
+  };
+}
+
+/**
+ * 将数据库 Holding 转换为前端格式
+ */
+function fromDbHolding(db: DbHolding): Holding {
+  return {
+    id: db.id,
+    fundId: '', // 需要从 fund_code 查询
+    fundCode: db.fund_code,
+    fundName: db.fund_name,
+    shares: db.shares,
+    avgCost: db.avg_nav,
+    totalCost: db.total_cost,
+    currentNav: db.current_nav,
+    currentValue: db.market_value,
+    profit: db.profit,
+    profitRate: db.profit_rate,
+    createdAt: db.created_at,
+    updatedAt: db.updated_at,
+  };
+}
+
+/**
+ * 将前端 Transaction 转换为数据库格式
+ */
+function toDbTransaction(tx: Transaction): Omit<DbTransaction, 'id' | 'created_at' | 'updated_at'> {
+  return {
+    fund_code: tx.fundCode,
+    fund_name: tx.fundName,
+    type: tx.type,
+    shares: tx.shares,
+    nav: tx.price,
+    amount: tx.amount,
+    fee: tx.fee || 0,
+    date: tx.date,
+    status: tx.status || 'completed',
+  };
+}
+
+/**
+ * 将数据库 Transaction 转换为前端格式
+ */
+function fromDbTransaction(db: DbTransaction): Transaction {
+  return {
+    id: db.id,
+    fundId: '', // 需要从 fund_code 查询
+    fundCode: db.fund_code,
+    fundName: db.fund_name,
+    type: db.type,
+    date: db.date,
+    confirmDate: db.date,
+    amount: db.amount,
+    price: db.nav,
+    shares: db.shares,
+    fee: db.fee,
+    status: db.status,
+    createdAt: db.created_at,
+  };
 }
 
 /**
@@ -21,19 +129,12 @@ export async function syncHoldingsToSupabase(holdings: Holding[]): Promise<SyncR
 
   try {
     // 清空现有数据
-    await supabase.from('holdings').delete().neq('id', '');
+    await supabase.from('holdings').delete().neq('id', '0');
 
     // 插入新数据
     if (holdings.length > 0) {
-      const { error } = await supabase.from('holdings').insert(
-        holdings.map(h => ({
-          fund_code: h.fund_code,
-          fund_name: h.fund_name,
-          shares: h.shares,
-          avg_nav: h.avg_nav || 0,
-          total_cost: h.total_cost || 0,
-        }))
-      );
+      const dbHoldings = holdings.map(toDbHolding);
+      const { error } = await supabase.from('holdings').insert(dbHoldings);
 
       if (error) throw error;
     }
@@ -54,23 +155,12 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
 
   try {
     // 清空现有数据
-    await supabase.from('transactions').delete().neq('id', '');
+    await supabase.from('transactions').delete().neq('id', '0');
 
     // 插入新数据
     if (transactions.length > 0) {
-      const { error } = await supabase.from('transactions').insert(
-        transactions.map(t => ({
-          fund_code: t.fund_code,
-          fund_name: t.fund_name,
-          type: t.type,
-          shares: t.shares,
-          nav: t.nav || 0,
-          amount: t.amount,
-          fee: t.fee || 0,
-          date: t.date,
-          status: t.status || 'completed',
-        }))
-      );
+      const dbTransactions = transactions.map(toDbTransaction);
+      const { error } = await supabase.from('transactions').insert(dbTransactions);
 
       if (error) throw error;
     }
@@ -95,10 +185,10 @@ export async function fetchAllDataFromSupabase() {
       supabase.from('transactions').select('*'),
     ]);
 
-    return {
-      holdings: holdingsRes.data || [],
-      transactions: transactionsRes.data || [],
-    };
+    const holdings = (holdingsRes.data as DbHolding[] || []).map(fromDbHolding);
+    const transactions = (transactionsRes.data as DbTransaction[] || []).map(fromDbTransaction);
+
+    return { holdings, transactions };
   } catch (error) {
     console.error('获取数据失败:', error);
     return { holdings: [], transactions: [] };
@@ -114,7 +204,7 @@ export async function checkSupabaseConnection(): Promise<boolean> {
   }
 
   try {
-    const { error } = await supabase.from('holdings').select('count').single();
+    const { error } = await supabase.from('holdings').select('count', { count: 'exact', head: true });
     return !error;
   } catch {
     return false;
