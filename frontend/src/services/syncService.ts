@@ -134,8 +134,8 @@ export async function syncHoldingsToSupabase(holdings: Holding[]): Promise<SyncR
 
     // 插入新数据
     if (holdings.length > 0) {
-      const dbHoldings: HoldingsInsert[] = holdings.map(toDbHolding);
-      const { error } = await supabase.from('holdings').insert(dbHoldings as any);
+      const dbHoldings = holdings.map(toDbHolding) as any[];
+      const { error } = await supabase.from('holdings').insert(dbHoldings);
 
       if (error) throw error;
     }
@@ -160,8 +160,8 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
 
     // 插入新数据
     if (transactions.length > 0) {
-      const dbTransactions: TransactionsInsert[] = transactions.map(toDbTransaction);
-      const { error } = await supabase.from('transactions').insert(dbTransactions as any);
+      const dbTransactions = transactions.map(toDbTransaction) as any[];
+      const { error } = await supabase.from('transactions').insert(dbTransactions);
 
       if (error) throw error;
     }

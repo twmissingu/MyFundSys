@@ -192,7 +192,7 @@ export async function addHolding(holding: Omit<Holding, 'id' | 'createdAt' | 'up
 
   const { data, error } = await supabase
     .from('holdings')
-    .insert([payload as any])
+    .insert(payload as any)
     .select()
     .single();
 
@@ -220,7 +220,7 @@ export async function addTransaction(transaction: Omit<Transaction, 'id' | 'crea
 
   const { data, error } = await supabase
     .from('transactions')
-    .insert([payload as any])
+    .insert(payload as any)
     .select()
     .single();
 
