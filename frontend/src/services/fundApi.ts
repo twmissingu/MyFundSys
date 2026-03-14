@@ -175,34 +175,15 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
 
 /**
  * 从东方财富网获取基金净值
- * 优先使用 Supabase Edge Function，解决 CORS 问题
+ * 优先使用 Vercel 代理 -> Supabase Edge Function，解决 CORS 问题
  */
 async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null> {
   try {
-    // 优先使用 Supabase Edge Function
-    if (isSupabaseConfigured()) {
-      console.log('[API] 使用 Supabase Edge Function:', fundCode);
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const edgeUrl = `${supabaseUrl}/functions/v1/fund-nav/${fundCode}`;
-      
-      const response = await fetch(edgeUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseKey}`,
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Edge Function 返回错误: ${response.status}`);
-      }
-      
+    // 优先使用 Vercel 代理调用 Edge Function
+    console.log('[API] 使用 Vercel 代理调用 fund-nav:', fundCode);
+    const response = await fetch(`/api/fund-nav/${fundCode}`);
+    if (response.ok) {
       const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      
       return {
         code: data.code,
         name: data.name,
@@ -217,12 +198,12 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
     const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`;
     console.log('[API] 直接调用:', url);
     
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    const directResponse = await fetch(url);
+    if (!directResponse.ok) {
+      throw new Error(`HTTP error! status: ${directResponse.status}`);
     }
 
-    const result = await response.json();
+    const result = await directResponse.json();
     
     if (result.ErrCode !== 0 || !result.Datas || result.Datas.length === 0) {
       throw new Error(result.ErrMsg || 'API返回错误或无数据');
@@ -556,30 +537,11 @@ async function searchLocalFunds(keyword: string): Promise<FundSearchResult[]> {
 
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
   try {
-    // 优先使用 Supabase Edge Function
-    if (isSupabaseConfigured()) {
-      console.log('[Search] 使用 Supabase Edge Function');
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const edgeUrl = `${supabaseUrl}/functions/v1/fund-search?keyword=${encodeURIComponent(keyword)}`;
-      
-      const response = await fetch(edgeUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseKey}`,
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Edge Function 返回错误: ${response.status}`);
-      }
-      
+    // 优先使用 Vercel 代理调用 Edge Function
+    console.log('[Search] 使用 Vercel 代理调用 fund-search');
+    const response = await fetch(`/api/fund-search?keyword=${encodeURIComponent(keyword)}`);
+    if (response.ok) {
       const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      
       return data || [];
     }
     
@@ -587,12 +549,12 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
     const url = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
     console.log('[Search] 直接调用 API:', url);
     
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const directResponse = await fetch(url);
+    if (!directResponse.ok) {
+      throw new Error(`HTTP ${directResponse.status}`);
     }
     
-    const result = await response.json();
+    const result = await directResponse.json();
     
     if (result && result.QuotationCodeTable && result.QuotationCodeTable.Data) {
       const data = result.QuotationCodeTable.Data;
