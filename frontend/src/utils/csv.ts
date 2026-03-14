@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, List, Button, Toast, Dialog, Tag } from 'antd-mobile';
 import { DownlandOutline, UploadOutline } from 'antd-mobile-icons';
-import { useHoldings, useTransactions } from '../hooks/useSupabase';
+import { useHoldings, useTransactions } from '../hooks/useSync';
 import { formatMoney, formatDate } from '../utils';
 import type { Holding, Transaction } from '../types';
 

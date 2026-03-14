@@ -1,279 +1,292 @@
 /**
- * 同步相关的 Hooks
+ * 同步相关的 Hooks (简化版)
  * 
- * 提供离线优先的数据访问能力：
- * - 自动处理网络状态变化
- * - 本地数据优先，后台同步到云端
- * - 同步状态可视化
+ * 使用 Supabase 作为数据源
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import { db } from '../db';
 import { 
-  getSyncStatus, 
-  subscribeToSyncStatus, 
-  initNetworkListener,
-  getFunds,
-  getHoldings,
-  getTransactions,
-  saveHolding,
-  removeHolding,
-  saveTransaction,
-  removeTransaction,
-  syncToCloud,
-  forceFullSync,
-  subscribeToCloudChanges,
+  syncHoldingsToSupabase,
+  syncTransactionsToSupabase,
+  fetchAllDataFromSupabase,
+  checkSupabaseConnection,
 } from '../services/syncService';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Fund, Holding, Transaction, Strategy } from '../types';
 
 // ============================================
 // 同步状态 Hook
 // ============================================
 
+export interface SyncStatus {
+  isOnline: boolean;
+  isConfigured: boolean;
+  lastSync: Date | null;
+  pendingChanges: number;
+}
+
 export function useSyncStatus() {
-  const [status, setStatus] = useState(getSyncStatus());
+  const [status, setStatus] = useState<SyncStatus>({
+    isOnline: navigator.onLine,
+    isConfigured: isSupabaseConfigured(),
+    lastSync: null,
+    pendingChanges: 0,
+  });
 
   useEffect(() => {
-    // 初始化网络监听
-    const cleanup = initNetworkListener();
-    
-    // 订阅状态变化
-    const unsubscribe = subscribeToSyncStatus(setStatus);
+    const handleOnline = () => setStatus(s => ({ ...s, isOnline: true }));
+    const handleOffline = () => setStatus(s => ({ ...s, isOnline: false }));
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
     return () => {
-      cleanup();
-      unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
   const triggerSync = useCallback(async () => {
-    await syncToCloud();
+    if (!isSupabaseConfigured()) return;
+    
+    try {
+      // 从本地数据库获取数据并同步到 Supabase
+      const holdings = await db.holdings.toArray();
+      const transactions = await db.transactions.toArray();
+      
+      await Promise.all([
+        syncHoldingsToSupabase(holdings),
+        syncTransactionsToSupabase(transactions),
+      ]);
+      
+      setStatus(s => ({ ...s, lastSync: new Date() }));
+    } catch (error) {
+      console.error('同步失败:', error);
+    }
   }, []);
 
-  const triggerFullSync = useCallback(async () => {
-    await forceFullSync();
-  }, []);
-
-  return {
-    ...status,
-    triggerSync,
-    triggerFullSync,
-  };
+  return { status, triggerSync };
 }
 
 // ============================================
-// 基金数据 Hook
+// 数据访问 Hooks
 // ============================================
 
 export function useFunds() {
   const [funds, setFunds] = useState<Fund[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await getFunds();
-      setFunds(data);
-      setError(null);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    const loadFunds = async () => {
+      try {
+        const data = await db.fundCache.toArray();
+        setFunds(data.map(f => ({
+          id: f.id,
+          code: f.code,
+          name: f.name,
+          category: f.category || '',
+          nav: f.nav,
+          navDate: f.navDate,
+          createdAt: f.createdAt,
+          updatedAt: f.updatedAt,
+        })));
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadFunds();
+  }, []);
 
-  return { funds, loading, error, refresh };
+  return { funds, loading };
 }
-
-// ============================================
-// 持仓数据 Hook
-// ============================================
 
 export function useHoldings() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await getHoldings();
-      setHoldings(data);
-      setError(null);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    const loadHoldings = async () => {
+      try {
+        if (isSupabaseConfigured()) {
+          // 从 Supabase 获取
+          const { data, error } = await supabase.from('holdings').select('*');
+          if (!error && data) {
+            setHoldings(data.map((h: any) => ({
+              id: h.id,
+              fundId: h.fund_code,
+              fundCode: h.fund_code,
+              fundName: h.fund_name,
+              shares: h.shares,
+              avgCost: h.avg_nav,
+              totalCost: h.total_cost,
+              currentNav: h.current_nav,
+              currentValue: h.market_value,
+              profit: h.profit,
+              profitRate: h.profit_rate,
+              createdAt: h.created_at,
+              updatedAt: h.updated_at,
+            })));
+            return;
+          }
+        }
+        
+        // 降级：从本地数据库获取
+        const data = await db.holdings.toArray();
+        setHoldings(data);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadHoldings();
+  }, []);
+
+  const saveHolding = useCallback(async (holding: Omit<Holding, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const id = await db.holdings.add({
+      ...holding,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as Holding);
+    
+    // 同步到 Supabase
+    if (isSupabaseConfigured()) {
+      await supabase.from('holdings').insert([{
+        fund_code: holding.fundCode,
+        fund_name: holding.fundName,
+        shares: holding.shares,
+        avg_nav: holding.avgCost,
+        total_cost: holding.totalCost,
+      } as any]);
+    }
+    
+    return id;
+  }, []);
+
+  const removeHolding = useCallback(async (id: string) => {
+    await db.holdings.delete(id);
+    
+    if (isSupabaseConfigured()) {
+      await supabase.from('holdings').delete().eq('id', id);
     }
   }, []);
 
-  useEffect(() => {
-    refresh();
-
-    // 监听云端变化
-    const unsubscribe = subscribeToCloudChanges(() => {
-      console.log('[useHoldings] 检测到云端变化，刷新数据');
-      refresh();
-    });
-
-    return () => unsubscribe();
-  }, [refresh]);
-
-  const addHolding = useCallback(async (holding: Omit<Holding, 'createdAt' | 'updatedAt'>) => {
-    await saveHolding(holding);
-    await refresh();
-  }, [refresh]);
-
-  const deleteHolding = useCallback(async (id: string) => {
-    await removeHolding(id);
-    await refresh();
-  }, [refresh]);
-
-  return { 
-    holdings, 
-    loading, 
-    error, 
-    refresh,
-    addHolding,
-    deleteHolding,
-  };
+  return { holdings, loading, saveHolding, removeHolding };
 }
 
-// 导出单独的函数供直接使用
-export { saveHolding as addHolding, removeHolding as deleteHolding };
-
-// ============================================
-// 交易记录 Hook
-// ============================================
-
-export function useTransactions(fundCode?: string) {
+export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await getTransactions(fundCode);
-      setTransactions(data);
-      setError(null);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, [fundCode]);
 
   useEffect(() => {
-    refresh();
-
-    // 监听云端变化
-    const unsubscribe = subscribeToCloudChanges(() => {
-      console.log('[useTransactions] 检测到云端变化，刷新数据');
-      refresh();
-    });
-
-    return () => unsubscribe();
-  }, [refresh]);
-
-  const addTransaction = useCallback(async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
-    await saveTransaction(transaction);
-    await refresh();
-  }, [refresh]);
-
-  const deleteTransaction = useCallback(async (id: string) => {
-    await removeTransaction(id);
-    await refresh();
-  }, [refresh]);
-
-  return { 
-    transactions, 
-    loading, 
-    error, 
-    refresh,
-    addTransaction,
-    deleteTransaction,
-  };
-}
-
-// 导出单独的函数供直接使用
-export { saveTransaction as addTransaction, removeTransaction as deleteTransaction };
-
-// ============================================
-// 策略数据 Hook
-// ============================================
-
-export function useStrategies() {
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await db.strategies.toArray();
-      setStrategies(data);
-      setError(null);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  return { strategies, loading, error, refresh };
-}
-
-// ============================================
-// 认证状态 Hook（简化版）
-// ============================================
-
-export function useAuthStatus() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const checkAuth = () => {
-      const auth = localStorage.getItem('myfundsys_auth');
-      const authTime = localStorage.getItem('myfundsys_auth_time');
-      
-      if (auth === 'true' && authTime) {
-        // 检查登录是否过期（30天）
-        const elapsed = Date.now() - parseInt(authTime);
-        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-        
-        if (elapsed < thirtyDays) {
-          setIsAuthenticated(true);
-        } else {
-          localStorage.removeItem('myfundsys_auth');
-          localStorage.removeItem('myfundsys_auth_time');
-          setIsAuthenticated(false);
+    const loadTransactions = async () => {
+      try {
+        if (isSupabaseConfigured()) {
+          // 从 Supabase 获取
+          const { data, error } = await supabase.from('transactions').select('*');
+          if (!error && data) {
+            setTransactions(data.map((t: any) => ({
+              id: t.id,
+              fundId: t.fund_code,
+              fundCode: t.fund_code,
+              fundName: t.fund_name,
+              type: t.type,
+              date: t.date,
+              confirmDate: t.date,
+              amount: t.amount,
+              price: t.nav,
+              shares: t.shares,
+              fee: t.fee,
+              status: t.status,
+              createdAt: t.created_at,
+            })));
+            return;
+          }
         }
+        
+        // 降级：从本地数据库获取
+        const data = await db.transactions.toArray();
+        setTransactions(data);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
-    
-    checkAuth();
+    loadTransactions();
   }, []);
 
-  return { isAuthenticated, loading };
+  const saveTransaction = useCallback(async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
+    const id = await db.transactions.add({
+      ...transaction,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    } as Transaction);
+    
+    // 同步到 Supabase
+    if (isSupabaseConfigured()) {
+      await supabase.from('transactions').insert([{
+        fund_code: transaction.fundCode,
+        fund_name: transaction.fundName,
+        type: transaction.type,
+        shares: transaction.shares,
+        nav: transaction.price,
+        amount: transaction.amount,
+        fee: transaction.fee || 0,
+        date: transaction.date,
+        status: transaction.status || 'completed',
+      } as any]);
+    }
+    
+    return id;
+  }, []);
+
+  const removeTransaction = useCallback(async (id: string) => {
+    await db.transactions.delete(id);
+    
+    if (isSupabaseConfigured()) {
+      await supabase.from('transactions').delete().eq('id', id);
+    }
+  }, []);
+
+  return { transactions, loading, saveTransaction, removeTransaction };
 }
 
 // ============================================
-// 登出函数
+// 工具函数
 // ============================================
 
-export async function signOut() {
-  localStorage.removeItem('myfundsys_auth');
-  localStorage.removeItem('myfundsys_auth_time');
-  return { error: null };
+export function updateLocalHoldingAfterTransaction(
+  holding: Holding | undefined,
+  transaction: Transaction
+): Holding {
+  if (!holding) {
+    // 新建持仓
+    return {
+      id: crypto.randomUUID(),
+      fundId: transaction.fundId,
+      fundCode: transaction.fundCode,
+      fundName: transaction.fundName,
+      shares: transaction.shares,
+      avgCost: transaction.price,
+      totalCost: transaction.amount,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  // 更新现有持仓
+  const newShares = transaction.type === 'buy'
+    ? holding.shares + transaction.shares
+    : holding.shares - transaction.shares;
+
+  const newTotalCost = transaction.type === 'buy'
+    ? holding.totalCost + transaction.amount
+    : holding.totalCost - transaction.amount;
+
+  return {
+    ...holding,
+    shares: newShares,
+    totalCost: newTotalCost,
+    avgCost: newShares > 0 ? newTotalCost / newShares : 0,
+    updatedAt: new Date().toISOString(),
+  };
 }
