@@ -5,27 +5,18 @@
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "frontend/dist"
+        "distDir": "dist"
       }
-    },
-    {
-      "src": "api/**/*.ts",
-      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/$1"
+      "dest": "/api/app.py"
     },
     {
       "src": "/(.*)",
-      "dest": "/frontend/dist/$1"
+      "dest": "frontend/dist/$1"
     }
-  ],
-  "env": {
-    "APP_PASSWORD": "@app-password",
-    "UPSTASH_REDIS_REST_URL": "@upstash-redis-url",
-    "UPSTASH_REDIS_REST_TOKEN": "@upstash-redis-token"
-  }
+  ]
 }
