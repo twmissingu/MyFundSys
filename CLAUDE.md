@@ -30,7 +30,10 @@
 | `frontend/src/types/index.ts` | 全局 TypeScript 类型 |
 | `supabase/functions/fund-nav/index.ts` | Edge Function: 查询净值 |
 | `supabase/functions/fund-search/index.ts` | Edge Function: 搜索基金 |
+| `supabase/functions/fund-history/index.ts` | Edge Function: 查询历史净值 |
 | `frontend/vite.config.ts` | 构建配置 + 开发代理 |
+| `frontend/vitest.config.ts` | Vitest 测试配置 |
+| `frontend/src/__tests__/` | 单元测试（utils/fundApi/hooks） |
 | `.github/workflows/update-valuation.yml` | 每 2 小时自动更新估值数据 |
 
 ---
@@ -61,8 +64,9 @@ Supabase 不可用 → 纯 IndexedDB 离线模式
 
 ### 4. Edge Function 部署
 ```bash
-SUPABASE_ACCESS_TOKEN=<token> supabase functions deploy fund-nav --project-ref xeddgyxugpwmgwmeetme
-SUPABASE_ACCESS_TOKEN=<token> supabase functions deploy fund-search --project-ref xeddgyxugpwmgwmeetme
+SUPABASE_ACCESS_TOKEN=<token> supabase functions deploy fund-nav     --project-ref xeddgyxugpwmgwmeetme
+SUPABASE_ACCESS_TOKEN=<token> supabase functions deploy fund-search  --project-ref xeddgyxugpwmgwmeetme
+SUPABASE_ACCESS_TOKEN=<token> supabase functions deploy fund-history --project-ref xeddgyxugpwmgwmeetme
 ```
 
 ---
@@ -81,6 +85,12 @@ npm run dev         # http://localhost:5173/
 VITE_SUPABASE_URL=https://xeddgyxugpwmgwmeetme.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGci...（JWT 格式）
 VITE_APP_PASSWORD=你的密码
+```
+
+### 测试
+```bash
+npm test            # 运行所有测试（Vitest）
+npm run test:watch  # 监听模式
 ```
 
 ### 构建与部署

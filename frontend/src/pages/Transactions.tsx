@@ -4,7 +4,8 @@ import { AddOutline } from 'antd-mobile-icons';
 
 import { useTransactions, updateLocalHoldingAfterTransaction } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
-import { searchByCode, FundSearchResult, fetchFundNav } from '../services/fundApi';
+import { searchByCode, fetchFundNav } from '../services/fundApi';
+import type { FundSearchResult } from '../types';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 

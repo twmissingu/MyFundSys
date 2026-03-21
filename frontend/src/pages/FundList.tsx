@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, SearchBar, SpinLoading } from 'antd-mobile';
 import { SearchOutline } from 'antd-mobile-icons';
-import { searchByCode, searchByName, FundSearchResult } from '../services/fundApi';
+import { searchByCode, searchByName } from '../services/fundApi';
+import type { FundSearchResult } from '../types';
 import FavoriteFunds from '../components/FavoriteFunds';
 import './Layout.css';
 
