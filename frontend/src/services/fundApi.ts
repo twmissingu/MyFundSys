@@ -344,18 +344,7 @@ export async function searchByCode(code: string): Promise<FundSearchResult[]> {
     return localResults;
   }
   
-  // 3. 本地没有，尝试从API搜索
-  // GitHub Pages 环境下使用预置数据
-  if (isGitHubPages) {
-    const presetResults = PRESET_FUNDS.filter(f => 
-      f.code.toLowerCase().startsWith(trimmedCode.toLowerCase())
-    );
-    if (presetResults.length > 0) {
-      await saveFundCache(presetResults);
-    }
-    return presetResults.slice(0, 10);
-  }
-  
+  // 3. 本地没有，从API搜索（优先 Supabase Edge Function，解决 CORS 问题）
   try {
     const apiResults = await searchFromEastMoney(trimmedCode);
     // 过滤只保留代码前缀匹配的结果（如输入000，匹配000001，不匹配100000）
@@ -395,18 +384,7 @@ export async function searchByName(name: string): Promise<FundSearchResult[]> {
     return localResults;
   }
   
-  // 3. 本地没有，尝试从API搜索
-  // GitHub Pages 环境下使用预置数据
-  if (isGitHubPages) {
-    const presetResults = PRESET_FUNDS.filter(f => 
-      f.name.toLowerCase().includes(trimmedName.toLowerCase())
-    );
-    if (presetResults.length > 0) {
-      await saveFundCache(presetResults);
-    }
-    return presetResults.slice(0, 10);
-  }
-  
+  // 3. 本地没有，从API搜索（优先 Supabase Edge Function，解决 CORS 问题）
   try {
     const apiResults = await searchFromEastMoney(trimmedName);
     // 过滤只保留名称匹配的结果

@@ -55,11 +55,12 @@ serve(async (req: Request) => {
   }
 
   try {
-    // 从 URL 获取基金代码
+    // 从 POST body 获取基金代码（supabase.functions.invoke 使用 POST 传参）
     const url = new URL(req.url);
-    const code = url.pathname.split('/').pop();
+    const body = await req.json().catch(() => ({}));
+    const code = body.code || url.searchParams.get('code') || url.pathname.split('/').pop();
 
-    if (!code) {
+    if (!code || code === 'fund-nav') {
       return new Response(
         JSON.stringify({ error: '基金代码不能为空' }),
         { status: 400, headers: corsHeaders }
@@ -71,8 +72,9 @@ serve(async (req: Request) => {
 
     const response = await fetch(eastMoneyUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'EMProjJijin/8.4.6 (iPhone; iOS 16.0; Scale/3.00)',
         'Accept': 'application/json',
+        'Referer': 'https://fund.eastmoney.com/',
       },
     });
 
