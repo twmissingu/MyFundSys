@@ -52,9 +52,10 @@ serve(async (req: Request) => {
   }
 
   try {
-    // 从 URL 获取搜索关键词
+    // 从 POST body 获取搜索关键词（supabase.functions.invoke 使用 POST 传参）
     const url = new URL(req.url);
-    const keyword = url.searchParams.get('keyword');
+    const body = await req.json().catch(() => ({}));
+    const keyword = body.keyword || url.searchParams.get('keyword');
 
     if (!keyword) {
       return new Response(
@@ -68,8 +69,9 @@ serve(async (req: Request) => {
 
     const response = await fetch(searchUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'EMProjJijin/8.4.6 (iPhone; iOS 16.0; Scale/3.00)',
         'Accept': 'application/json',
+        'Referer': 'https://fund.eastmoney.com/',
       },
     });
 
