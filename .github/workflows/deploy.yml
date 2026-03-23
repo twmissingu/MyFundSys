@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy
 
 on:
   push:
@@ -15,8 +15,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deploy-functions:
+    name: Deploy Edge Functions to Supabase
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy Edge Functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy fund-nav     --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+          supabase functions deploy fund-search  --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+          supabase functions deploy fund-history --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+
   deploy-frontend:
-    name: Build and Deploy Frontend to GitHub Pages
+    name: Deploy Frontend to GitHub Pages
     runs-on: ubuntu-latest
     environment:
       name: github-pages
