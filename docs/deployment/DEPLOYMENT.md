@@ -79,8 +79,8 @@ cp .env.example .env
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 
-# 设置登录密码
-VITE_APP_PASSWORD=888
+# 设置登录密码（请修改为强密码）
+VITE_APP_PASSWORD=your_secure_password_here
 ```
 
 ### 5. 构建前端
