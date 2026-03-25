@@ -15,7 +15,7 @@ const Settings: React.FC = () => {
   const [importing, setImporting] = useState(false);
   const { holdings } = useHoldings();
   const { transactions } = useTransactions();
-  const { status: syncStatus, triggerSync, triggerFullSync } = useSyncStatus();
+  const { status: syncStatus, triggerSync } = useSyncStatus();
   const isConfigured = isSupabaseConfigured();
 
   // 定时任务状态
@@ -196,7 +196,7 @@ const Settings: React.FC = () => {
             </Button>
             <Button 
               size="mini" 
-              onClick={() => triggerFullSync()}
+              onClick={() => triggerSync()}
             >
               强制全量同步
             </Button>

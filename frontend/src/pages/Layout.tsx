@@ -8,6 +8,7 @@ import {
   FileOutline,
   PayCircleOutline,
   FlagOutline,
+  GlobalOutline,
 } from 'antd-mobile-icons';
 import Dashboard from './Dashboard';
 import FundList from './FundList';
@@ -17,6 +18,7 @@ import Transactions from './Transactions';
 import Articles from './Articles';
 import Strategy from './Strategy';
 import Settings from './Settings';
+import AIPosts from './AIPosts';
 import AuthPage from './AuthPage';
 import { useSyncStatus } from '../hooks/useSync';
 import { useAuthStatus, signOut } from '../hooks/useSupabase';
@@ -90,6 +92,12 @@ const Layout: React.FC = () => {
       title: '文章',
       icon: <FileOutline />,
       component: <Articles />,
+    },
+    {
+      key: 'ai-posts',
+      title: 'AI动态',
+      icon: <GlobalOutline />,
+      component: <AIPosts />,
     },
     {
       key: 'strategy',

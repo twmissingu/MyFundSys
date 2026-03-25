@@ -84,43 +84,12 @@ export function useSyncStatus() {
     }
   }, []);
 
-  // 添加 triggerFullSync 作为 triggerSync 的别名
-  const triggerFullSync = triggerSync;
-
-  return { status, triggerSync, triggerFullSync };
+  return { status, triggerSync };
 }
 
 // ============================================
 // 数据访问 Hooks
 // ============================================
-
-export function useFunds() {
-  const [funds, setFunds] = useState<Fund[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadFunds = async () => {
-      try {
-        const data = await db.fundCache.toArray();
-        setFunds(data.map(f => ({
-          id: f.id,
-          code: f.code,
-          name: f.name,
-          category: f.category || '',
-          nav: f.nav,
-          navDate: f.navDate,
-          createdAt: f.createdAt,
-          updatedAt: f.updatedAt,
-        })));
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadFunds();
-  }, []);
-
-  return { funds, loading };
-}
 
 export function useHoldings() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
@@ -256,7 +225,7 @@ export function useTransactions() {
         date: transaction.date,
         status: transaction.status || 'completed',
       };
-      await (supabase.from('transactions').insert as any)(payload);
+      await supabase.from('transactions').insert(payload as any);
     }
 
     return id;
@@ -277,6 +246,27 @@ export function useTransactions() {
 // 工具函数
 // ============================================
 
+/**
+ * 交易后更新持仓
+ *
+ * 核心算法：根据交易类型（买入/卖出）更新持仓的份额和成本
+ * - 买入：增加份额，累加成本，重新计算均价
+ * - 卖出：减少份额，按比例减少成本，重新计算均价
+ *
+ * @param holding - 现有持仓（undefined 表示新建持仓）
+ * @param transaction - 交易记录，包含类型、份额、金额、价格
+ * @returns 更新后的持仓对象
+ *
+ * @example
+ * // 买入新基金，创建新持仓
+ * const newHolding = updateLocalHoldingAfterTransaction(undefined, buyTx);
+ *
+ * // 追加买入，更新现有持仓
+ * const updated = updateLocalHoldingAfterTransaction(existing, buyTx);
+ *
+ * // 卖出部分份额
+ * const afterSell = updateLocalHoldingAfterTransaction(existing, sellTx);
+ */
 export function updateLocalHoldingAfterTransaction(
   holding: Holding | undefined,
   transaction: Transaction
@@ -315,6 +305,36 @@ export function updateLocalHoldingAfterTransaction(
 }
 
 // ============================================
+// 数据导入导出
+// ============================================
+
+export async function exportData(): Promise<string> {
+  const funds = await db.fundCache.toArray();
+  const holdings = await db.holdings.toArray();
+  const transactions = await db.transactions.toArray();
+  const strategies = await db.strategies.toArray();
+
+  return JSON.stringify({
+    funds,
+    holdings,
+    transactions,
+    strategies,
+    exportTime: new Date().toISOString(),
+  }, null, 2);
+}
+
+export async function importData(jsonData: string): Promise<void> {
+  const data = JSON.parse(jsonData);
+
+  await db.transaction('rw', [db.fundCache, db.holdings, db.transactions, db.strategies], async () => {
+    if (data.funds) await db.fundCache.bulkPut(data.funds);
+    if (data.holdings) await db.holdings.bulkPut(data.holdings);
+    if (data.transactions) await db.transactions.bulkPut(data.transactions);
+    if (data.strategies) await db.strategies.bulkPut(data.strategies);
+  });
+}
+
+// ============================================
 // 策略 Hooks
 // ============================================
 
@@ -322,22 +342,24 @@ export function useStrategies() {
   const [strategies, setStrategies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadStrategies = async () => {
-      try {
-        // 从本地数据库获取策略
-        const data = await db.strategies?.toArray() || [];
-        setStrategies(data);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadStrategies();
+  const loadStrategies = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 从本地数据库获取策略
+      const data = await db.strategies?.toArray() || [];
+      setStrategies(data);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const refresh = () => {
-    window.location.reload();
-  };
+  useEffect(() => {
+    loadStrategies();
+  }, [loadStrategies]);
+
+  const refresh = useCallback(async () => {
+    await loadStrategies();
+  }, [loadStrategies]);
 
   return { strategies, loading, refresh };
 }

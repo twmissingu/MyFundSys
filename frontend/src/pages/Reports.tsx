@@ -1,7 +1,7 @@
 import React from 'react';
 import { SpinLoading, Empty, Button, Toast } from 'antd-mobile';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { useHoldings, exportData, importData } from '../hooks/useDB';
+import { useHoldings, exportData, importData } from '../hooks/useSync';
 import { UploadOutline, DownlandOutline } from 'antd-mobile-icons';
 import './Layout.css';
 

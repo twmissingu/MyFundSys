@@ -37,51 +37,29 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
 }
 
 /**
- * 从东方财富获取基金净值
- * 优先 Supabase Edge Function（无 CORS 限制），降级直接调用
+ * 从东方财富获取基金净值（通过 Supabase Edge Function 代理）
  */
 async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null> {
   try {
-    // 优先使用 Supabase Edge Function
-    if (isSupabaseConfigured()) {
-      const { data, error } = await supabase.functions.invoke('fund-nav', {
-        body: { code: fundCode },
-      });
-      if (error) throw error;
-      if (data) {
-        return {
-          code: data.code,
-          name: data.name,
-          nav: data.nav,
-          navDate: data.navDate,
-          dailyChange: data.estimateNav ? data.estimateNav - data.nav : 0,
-          dailyChangeRate: data.estimateRate || 0,
-        };
-      }
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase 未配置');
     }
 
-    // 降级：直接调用东方财富 API（可能有 CORS 问题）
-    const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=500&appType=ttjj&plat=Android&product=EFund&Version=1&deviceid=4252d0ac69bb50&Fcodes=${fundCode}`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-    const result = await response.json();
-    if (result.ErrCode !== 0 || !result.Datas || result.Datas.length === 0) {
-      throw new Error(result.ErrMsg || 'API返回错误或无数据');
+    const { data, error } = await supabase.functions.invoke('fund-nav', {
+      body: { code: fundCode },
+    });
+    if (error) throw error;
+    if (data) {
+      return {
+        code: data.code,
+        name: data.name,
+        nav: data.nav,
+        navDate: data.navDate,
+        dailyChange: data.estimateNav ? data.estimateNav - data.nav : 0,
+        dailyChangeRate: data.estimateRate || 0,
+      };
     }
-
-    const item = result.Datas[0];
-    const dailyChangeRate = parseFloat(item.NAVCHGRT || '0');
-    const nav = parseFloat(item.NAV || '0');
-
-    return {
-      code: fundCode,
-      name: item.SHORTNAME || `基金${fundCode}`,
-      nav: Number(nav.toFixed(4)),
-      navDate: item.PDATE || item.NAVDATE || new Date().toISOString().split('T')[0],
-      dailyChange: Number((nav * dailyChangeRate / 100).toFixed(4)),
-      dailyChangeRate: Number(dailyChangeRate.toFixed(2)),
-    };
+    return null;
   } catch (error) {
     console.error(`获取基金净值失败 ${fundCode}:`, error);
     return null;
@@ -291,31 +269,15 @@ function toSearchResult(f: FundCacheItem): FundSearchResult {
  */
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
   try {
-    // 优先使用 Supabase Edge Function（无 CORS 限制）
-    if (isSupabaseConfigured()) {
-      const { data, error } = await supabase.functions.invoke('fund-search', {
-        body: { keyword },
-      });
-      if (error) throw error;
-      return data || [];
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase 未配置');
     }
 
-    // 降级：直接调用（可能有 CORS 问题）
-    const url = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const result = await response.json();
-    if (!result?.QuotationCodeTable?.Data) return [];
-
-    return result.QuotationCodeTable.Data
-      .filter((item: any) => item.Code && item.Name)
-      .filter((item: any) => ['OTCFUND', 'FUND', 'Fund'].includes(item.Classify))
-      .map((item: any) => ({
-        code: item.Code,
-        name: item.Name,
-        type: item.Classes || item.Classify || '基金',
-      }));
+    const { data, error } = await supabase.functions.invoke('fund-search', {
+      body: { keyword },
+    });
+    if (error) throw error;
+    return data || [];
   } catch (error) {
     console.error('东方财富搜索失败:', error);
     return [];
@@ -421,6 +383,20 @@ export async function markFundAsHolding(code: string, isHolding: boolean): Promi
 // 批量基金净值操作
 // ============================================
 
+/**
+ * 批量获取多只基金的净值
+ *
+ * 为避免请求过多导致被限流，采用分批串行策略：
+ * - 每批最多 5 只基金
+ * - 批次之间间隔 100ms
+ *
+ * @param fundCodes - 基金代码数组
+ * @returns 成功获取的基金净值数组（失败项被过滤）
+ *
+ * @example
+ * const codes = ['000001', '000002', '000003'];
+ * const results = await fetchMultipleFundsNav(codes);
+ */
 export async function fetchMultipleFundsNav(fundCodes: string[]): Promise<FundApiData[]> {
   const results: FundApiData[] = [];
   const batchSize = 5;
@@ -437,6 +413,16 @@ export async function fetchMultipleFundsNav(fundCodes: string[]): Promise<FundAp
   return results;
 }
 
+/**
+ * 批量刷新基金净值并更新缓存
+ *
+ * 逐个获取基金净值，成功后更新 IndexedDB 缓存
+ * - 分批处理，每批 5 只基金
+ * - 批次间隔 500ms，避免请求过快
+ *
+ * @param codes - 基金代码数组
+ * @returns 成功和失败的代码列表 { success: [], failed: [] }
+ */
 export async function batchRefreshFunds(codes: string[]): Promise<{
   success: string[];
   failed: string[];
@@ -494,7 +480,6 @@ export interface FundHistoryData {
 
 /**
  * 获取基金历史净值
- * 优先通过 Supabase Edge Function 代理，解决 CORS 问题
  * @param fundCode 基金代码
  * @param pageSize 每页条数（默认20）
  * @param pageIndex 页码（从1开始）
@@ -507,32 +492,15 @@ export async function fetchFundHistory(
   startDate = ''
 ): Promise<FundHistoryData[]> {
   try {
-    // 优先 Supabase Edge Function（无 CORS 限制）
-    if (isSupabaseConfigured()) {
-      const { data, error } = await supabase.functions.invoke('fund-history', {
-        body: { code: fundCode, pageSize, pageIndex, startDate },
-      });
-      if (!error && data) return data;
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase 未配置');
     }
 
-    // 降级：直接调用东方财富 API（可能有 CORS 限制）
-    const url = `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=${pageIndex}&pageSize=${pageSize}&startDate=${startDate}&endDate=`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const result = await response.json();
-    if (!result.Data?.LSJZList) return [];
-
-    return result.Data.LSJZList
-      .filter((item: any) => item.FSRQ && item.DWJZ)
-      .map((item: any) => ({
-        date: item.FSRQ,
-        nav: parseFloat(item.DWJZ),
-        accNav: parseFloat(item.LJJZ || '0'),
-        dailyChangeRate: parseFloat(item.JZZZL || '0'),
-        buyStatus: item.SGZT || '-',
-        sellStatus: item.SHZT || '-',
-      }));
+    const { data, error } = await supabase.functions.invoke('fund-history', {
+      body: { code: fundCode, pageSize, pageIndex, startDate },
+    });
+    if (!error && data) return data;
+    return [];
   } catch (error) {
     console.error(`获取历史净值失败 ${fundCode}:`, error);
     return [];
@@ -610,7 +578,18 @@ export async function batchGetFundHistory(
 }
 
 /**
- * 分页批量获取历史净值（内部使用，东方财富每页固定返回20条）
+ * 分页批量获取历史净值（内部使用）
+ *
+ * 东方财富 API 每页固定返回 20 条记录，如需获取多天数据需要分页。
+ * 此函数自动分页获取直到满足天数要求或到达最大页数限制。
+ *
+ * @param fundCode - 基金代码
+ * @param days - 需要获取的历史天数
+ * @returns 历史净值数据数组（按日期升序排列）
+ *
+ * @example
+ * // 获取最近 30 天的历史净值
+ * const history = await fetchFundHistoryBatch('000001', 30);
  */
 async function fetchFundHistoryBatch(fundCode: string, days: number): Promise<FundHistoryData[]> {
   let allData: FundHistoryData[] = [];
