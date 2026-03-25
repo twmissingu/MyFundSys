@@ -20,7 +20,7 @@
 - ⚡ **实时更新** - 多设备同时使用时数据实时同步
 - 💾 **数据备份** - 云端自动备份，不再担心数据丢失
 
-查看 [Supabase 迁移文档](./SUPABASE_MIGRATION.md) 和 [部署说明](./DEPLOYMENT.md) 了解详情。
+查看 [Supabase 迁移文档](./docs/deployment/SUPABASE_MIGRATION.md) 和 [部署说明](./docs/deployment/DEPLOYMENT.md) 了解详情。
 
 ---
 
@@ -79,7 +79,7 @@ npm run dev
 3. 执行 `supabase/migrations/002_seed_data.sql`
 4. 获取 Project URL 和 Anon Key
 
-详细步骤见 [部署说明](./DEPLOYMENT.md)
+详细步骤见 [部署说明](./docs/deployment/DEPLOYMENT.md)
 
 ### 后端（Python CLI）
 
@@ -156,9 +156,21 @@ python cli_main.py profit
 
 ## 📚 文档
 
-- [Supabase 迁移文档](./SUPABASE_MIGRATION.md) - 详细迁移指南
-- [部署说明](./DEPLOYMENT.md) - 生产部署步骤
-- [迁移报告](./MIGRATION_REPORT.md) - 技术实现详情
+### 核心文档
+- [部署说明](./docs/deployment/DEPLOYMENT.md) - 生产部署步骤
+- [Supabase 迁移文档](./docs/deployment/SUPABASE_MIGRATION.md) - 详细迁移指南
+
+### 开发文档
+- [开发指南](./docs/development/DEVELOPMENT_GUIDE.md) - 开发规范
+- [本地测试指南](./docs/development/LOCAL_TEST_GUIDE.md) - 本地环境配置
+- [新功能测试](./docs/development/TEST_NEW_FEATURES.md) - 测试流程
+
+### 归档文档
+- [迁移报告](./docs/archive/MIGRATION_REPORT.md) - 技术实现详情
+- [项目总结](./docs/archive/PROJECT_SUMMARY.md) - 开发历程
+- [优化总结](./docs/archive/OPTIMIZATION_SUMMARY.md) - 性能优化记录
+- [SRS](./docs/archive/SRS.md) - 需求规格说明
+- [架构文档](./docs/archive/ARCHITECTURE.md) - 系统设计
 
 ---
 
