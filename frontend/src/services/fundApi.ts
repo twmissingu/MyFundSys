@@ -38,6 +38,7 @@ export async function fetchFundNav(fundCode: string): Promise<FundApiData | null
 
 /**
  * 从东方财富获取基金净值（通过 Supabase Edge Function 代理）
+ * 当实时估算数据不可用时，自动获取上一交易日的实际涨跌幅
  */
 async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null> {
   try {
@@ -50,13 +51,41 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
     });
     if (error) throw error;
     if (data) {
+      // 有估算数据时，使用估算涨跌幅
+      if (data.estimateNav && data.estimateRate !== undefined) {
+        return {
+          code: data.code,
+          name: data.name,
+          nav: data.nav,
+          navDate: data.navDate,
+          dailyChange: data.estimateNav - data.nav,
+          dailyChangeRate: data.estimateRate,
+        };
+      }
+
+      // 无估算数据时（非交易时间），从历史净值获取上一交易日实际涨跌幅
+      const historyData = await fetchFundHistory(fundCode, 5, 1, '');
+      if (historyData.length >= 1) {
+        // 历史数据按日期降序排列，第一条是最新的
+        const latestHistory = historyData[0];
+        return {
+          code: data.code,
+          name: data.name,
+          nav: data.nav,
+          navDate: data.navDate,
+          dailyChange: latestHistory.nav * (latestHistory.dailyChangeRate / 100),
+          dailyChangeRate: latestHistory.dailyChangeRate,
+        };
+      }
+
+      // 历史数据也获取失败，返回无涨跌幅数据
       return {
         code: data.code,
         name: data.name,
         nav: data.nav,
         navDate: data.navDate,
-        dailyChange: data.estimateNav ? data.estimateNav - data.nav : 0,
-        dailyChangeRate: data.estimateRate || 0,
+        dailyChange: 0,
+        dailyChangeRate: 0,
       };
     }
     return null;

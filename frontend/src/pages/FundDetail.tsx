@@ -194,17 +194,18 @@ const FundDetail: React.FC = () => {
         ) : fundData ? (
           <>
             {/* 1. 涨跌幅卡片（最醒目） */}
-            <Card 
-              style={{ 
-                marginBottom: 16, 
-                background: fundData.dailyChangeRate >= 0 
-                  ? 'linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%)' 
+            <Card
+              title="日涨跌幅"
+              style={{
+                marginBottom: 16,
+                background: fundData.dailyChangeRate >= 0
+                  ? 'linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%)'
                   : 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
                 border: 'none'
               }}
+              bodyStyle={{ paddingTop: 8 }}
             >
               <div style={{ textAlign: 'center', color: '#fff' }}>
-                <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 8 }}>日涨跌幅</div>
                 <div style={{ fontSize: 48, fontWeight: 'bold', marginBottom: 8 }}>
                   {fundData.dailyChangeRate >= 0 ? '+' : ''}{fundData.dailyChangeRate.toFixed(2)}%
                 </div>

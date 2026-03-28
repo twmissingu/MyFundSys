@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Card, List, Button, Dialog, Form, Input, Toast, Tag, Picker, SwipeAction } from 'antd-mobile';
 import { useStrategies } from '../hooks/useSync';
-import { runBacktest, generateMockPriceData } from '../services/backtest';
+import { runBacktest, buildPriceDataFromHistory } from '../services/backtest';
+import { fetchFundHistory } from '../services/fundApi';
 import { formatMoney, formatPercent } from '../utils';
 import type { Strategy, BacktestResult, StrategyRule } from '../types';
 import './Layout.css';
@@ -22,13 +23,28 @@ const StrategyPage: React.FC = () => {
     if (!selectedStrategy) return;
 
     try {
-      Toast.show({ content: '回测运行中...', position: 'bottom' });
-      
-      const priceData = generateMockPriceData(
+      Toast.show({ content: '正在获取历史数据...', position: 'bottom' });
+
+      // 获取真实历史净值数据
+      const priceData = await buildPriceDataFromHistory(
+        values.fundCode,
         values.startDate,
         values.endDate,
-        Number(values.basePrice)
+        async (code, start, end) => {
+          const data = await fetchFundHistory(code, 100, 1, start);
+          // 过滤日期范围内的数据
+          return data
+            .filter(item => item.date >= start && item.date <= end)
+            .map(item => ({ date: item.date, nav: item.nav }));
+        }
       );
+
+      if (priceData.length === 0) {
+        Toast.show({ content: '未获取到历史数据，请检查基金代码', position: 'bottom' });
+        return;
+      }
+
+      Toast.show({ content: '回测运行中...', position: 'bottom' });
 
       const result = await runBacktest({
         strategy: selectedStrategy,
@@ -43,7 +59,11 @@ const StrategyPage: React.FC = () => {
       setShowBacktestDialog(false);
       Toast.show({ content: '回测完成', position: 'bottom' });
     } catch (error) {
-      Toast.show({ content: '回测失败', position: 'bottom' });
+      console.error('回测失败:', error);
+      Toast.show({
+        content: error instanceof Error ? error.message : '回测失败',
+        position: 'bottom'
+      });
     }
   };
 

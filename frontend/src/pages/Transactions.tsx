@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading, Picker } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
 
-import { useTransactions, updateLocalHoldingAfterTransaction } from '../hooks/useSync';
+import { useTransactions, updateLocalHoldingAfterTransaction, useHoldings } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { searchByCode, fetchFundNav } from '../services/fundApi';
-import type { FundSearchResult } from '../types';
+import type { FundSearchResult, Transaction } from '../types';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
@@ -43,7 +44,8 @@ const Transactions: React.FC = () => {
   const [activeStatus, setActiveStatus] = useState<'all' | 'pending' | 'completed'>('all');
   const [selectedFundCode, setSelectedFundCode] = useState<string>(fundCodeFromUrl || 'all');
   const [showFundPicker, setShowFundPicker] = useState(false);
-  const { transactions, loading, saveTransaction, removeTransaction } = useTransactions();
+  const { transactions, loading, saveTransaction, removeTransaction, refresh } = useTransactions();
+  const { refresh: refreshHoldings } = useHoldings();
   
   // 监听 hash 变化
   useEffect(() => {
@@ -397,7 +399,7 @@ const Transactions: React.FC = () => {
         finalPrice = isPending ? 0 : (tradePrice || 0);
       }
 
-      await saveTransaction({
+      const transactionId = await saveTransaction({
         fundId: fund.id,
         fundCode: fund.code,
         fundName: fund.name,
@@ -410,6 +412,48 @@ const Transactions: React.FC = () => {
         fee: 0,
         status: isPending ? 'pending' : 'completed',
       });
+
+      // 对已完成交易，更新持仓
+      if (!isPending) {
+        const transaction: Transaction = {
+          id: transactionId as string,
+          fundId: fund.id,
+          fundCode: fund.code,
+          fundName: fund.name,
+          type: values.type,
+          date: values.date,
+          amount: amount,
+          price: finalPrice,
+          shares: shares,
+          status: 'completed',
+          createdAt: new Date().toISOString(),
+        };
+
+        const existingHolding = await db.holdings.where('fundCode').equals(fund.code).first();
+        const updatedHolding = updateLocalHoldingAfterTransaction(existingHolding, transaction);
+
+        if (existingHolding) {
+          await db.holdings.update(existingHolding.id, updatedHolding);
+        } else {
+          await db.holdings.add(updatedHolding);
+        }
+
+        // 同步到 Supabase
+        if (isSupabaseConfigured()) {
+          const payload = {
+            fund_code: updatedHolding.fundCode,
+            fund_name: updatedHolding.fundName,
+            shares: updatedHolding.shares,
+            avg_cost: updatedHolding.avgCost,
+            total_cost: updatedHolding.totalCost,
+          };
+          if (existingHolding) {
+            await (supabase.from('holdings') as any).update(payload).eq('id', updatedHolding.id);
+          } else {
+            await supabase.from('holdings').insert({ ...payload, id: updatedHolding.id } as any);
+          }
+        }
+      }
 
       if (isPending) {
         Toast.show({
@@ -427,7 +471,8 @@ const Transactions: React.FC = () => {
       resetSearch();
       form.resetFields();
       setCurrentTradeType('buy');
-      window.location.reload();
+      await refresh();
+      await refreshHoldings();
     } catch (error) {
       console.error('Add transaction error:', error);
       Toast.show({ content: '添加失败', position: 'bottom' });
@@ -650,6 +695,8 @@ const Transactions: React.FC = () => {
       <Dialog
         visible={showAddDialog}
         title="添加交易"
+        style={{ '--max-width': '95vw' }}
+        bodyStyle={{ maxHeight: '80vh', overflowY: 'auto', padding: '16px 20px' }}
         onClose={() => {
           setShowAddDialog(false);
           resetSearch();
@@ -700,9 +747,9 @@ const Transactions: React.FC = () => {
                       </div>
                     )}
                     {!isCodeSearching && codeSearchResults.length > 0 && (
-                      <div 
-                        style={{ 
-                          maxHeight: '150px', 
+                      <div
+                        style={{
+                          maxHeight: '200px',
                           overflowY: 'auto',
                           border: '1px solid #f0f0f0',
                           borderRadius: '4px',
@@ -794,7 +841,7 @@ const Transactions: React.FC = () => {
               rules={[{ required: true }]}
               initialValue={new Date().toISOString().split('T')[0]}
             >
-              <Input type="date" />
+              <Input type="date" style={{ height: 44 }} />
             </Form.Item>
 
             {currentTradeType === 'buy' ? (
@@ -805,9 +852,10 @@ const Transactions: React.FC = () => {
                   rules={[{ required: true, message: '请输入买入金额' }]}
                   help={currentNav ? `当前净值: ${currentNav.toFixed(4)}` : ''}
                 >
-                  <Input 
-                    type="number" 
-                    placeholder="0.00" 
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    style={{ height: 44 }}
                     onChange={(val) => {
                       const amount = parseFloat(val || '0');
                       if (amount > 0 && currentNav) {
@@ -822,7 +870,7 @@ const Transactions: React.FC = () => {
                   label="获得份额"
                   style={{ marginBottom: 0 }}
                 >
-                  <Input type="number" disabled placeholder="自动计算" />
+                  <Input type="number" disabled placeholder="自动计算" style={{ height: 44 }} />
                 </Form.Item>
               </>
             ) : (
@@ -833,9 +881,10 @@ const Transactions: React.FC = () => {
                   rules={[{ required: true, message: '请输入卖出份额' }]}
                   help={currentNav ? `当前净值: ${currentNav.toFixed(4)}` : ''}
                 >
-                  <Input 
-                    type="number" 
-                    placeholder="0.00" 
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    style={{ height: 44 }}
                     onChange={(val) => {
                       const shares = parseFloat(val || '0');
                       if (shares > 0 && currentNav) {
@@ -850,7 +899,7 @@ const Transactions: React.FC = () => {
                   label="卖出金额（元）"
                   style={{ marginBottom: 0 }}
                 >
-                  <Input type="number" disabled placeholder="自动计算" />
+                  <Input type="number" disabled placeholder="自动计算" style={{ height: 44 }} />
                 </Form.Item>
               </>
             )}
@@ -859,7 +908,7 @@ const Transactions: React.FC = () => {
               name="remark"
               label="备注"
             >
-              <Input placeholder="可选" />
+              <Input placeholder="可选" style={{ height: 44 }} />
             </Form.Item>
           </Form>
         }

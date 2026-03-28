@@ -71,7 +71,7 @@ describe('searchByName', () => {
 });
 
 describe('fetchFundNav', () => {
-  it('Supabase 成功返回数据时正确映射字段', async () => {
+  it('Supabase 成功返回数据（有估算）时正确映射字段', async () => {
     mockInvoke.mockResolvedValueOnce({
       data: {
         code: '000001',
@@ -91,11 +91,19 @@ describe('fetchFundNav', () => {
     expect(result!.nav).toBe(1.5);
     expect(result!.navDate).toBe('2024-01-15');
     expect(result!.dailyChangeRate).toBe(1.33);
+    expect(result!.dailyChange).toBeCloseTo(0.02, 4); // 1.52 - 1.5
   });
 
-  it('缓存命中时不重复调用 Supabase', async () => {
+  it('有估算数据时缓存命中不重复调用 Supabase', async () => {
     mockInvoke.mockResolvedValue({
-      data: { code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-01', estimateRate: 0 },
+      data: {
+        code: '000001',
+        name: '测试基金',
+        nav: 1.0,
+        navDate: '2024-01-01',
+        estimateNav: 1.01,  // 有估算数据
+        estimateRate: 1.0,
+      },
       error: null,
     });
 
@@ -103,6 +111,47 @@ describe('fetchFundNav', () => {
     await fetchFundNav('000001'); // 第二次命中内存缓存
 
     expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('无估算数据时从历史净值获取实际涨跌幅', async () => {
+    // 第一次调用：fund-nav 返回无估算数据
+    mockInvoke.mockResolvedValueOnce({
+      data: {
+        code: '000001',
+        name: '测试基金',
+        nav: 1.5,
+        navDate: '2024-01-15',
+        // 无 estimateNav 和 estimateRate
+      },
+      error: null,
+    });
+
+    // 第二次调用：fund-history 返回历史数据
+    mockInvoke.mockResolvedValueOnce({
+      data: [
+        {
+          date: '2024-01-15',
+          nav: 1.5,
+          accNav: 2.0,
+          dailyChangeRate: 2.5, // 实际涨跌幅 2.5%
+          buyStatus: '开放',
+          sellStatus: '开放',
+        },
+      ],
+      error: null,
+    });
+
+    const result = await fetchFundNav('000001');
+
+    expect(mockInvoke).toHaveBeenCalledTimes(2);
+    expect(mockInvoke).toHaveBeenNthCalledWith(1, 'fund-nav', { body: { code: '000001' } });
+    expect(mockInvoke).toHaveBeenNthCalledWith(2, 'fund-history', {
+      body: { code: '000001', pageSize: 5, pageIndex: 1, startDate: '' },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.dailyChangeRate).toBe(2.5);
+    expect(result!.dailyChange).toBeCloseTo(0.0375, 4); // 1.5 * 2.5%
   });
 
   it('Supabase 返回 error 时返回 null', async () => {

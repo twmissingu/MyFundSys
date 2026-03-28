@@ -5,6 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } 
 import { useHoldings } from '../hooks/useSync';
 import { db, FundCacheItem } from '../db';
 import { formatMoney, formatPercent } from '../utils';
+import TotalAssetsCard from '../components/TotalAssetsCard';
 import './Layout.css';
 
 const COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fadb14'];
@@ -24,11 +25,8 @@ const Holdings: React.FC = () => {
     loadFundCache();
   }, []);
 
-  // 计算汇总数据
+  // 计算总资产（用于统计图表）
   const totalAssets = holdings.reduce((sum, h) => sum + (h.currentValue || h.totalCost), 0);
-  const totalCost = holdings.reduce((sum, h) => sum + h.totalCost, 0);
-  const totalProfit = totalAssets - totalCost;
-  const totalProfitRate = totalCost > 0 ? totalProfit / totalCost : 0;
 
   // 按分类统计
   const categoryStats = useMemo(() => {
@@ -281,13 +279,7 @@ const Holdings: React.FC = () => {
       <h1 className="page-title">持仓管理</h1>
 
       {/* 资产总览 */}
-      <div className="stat-card">
-        <div className="stat-label">总资产</div>
-        <div className="stat-value">{formatMoney(totalAssets)}</div>
-        <div className="stat-change" style={{ color: totalProfit >= 0 ? '#ffccc7' : '#b7eb8f' }}>
-          盈亏: {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)} ({formatPercent(totalProfitRate)})
-        </div>
-      </div>
+      <TotalAssetsCard holdings={holdings} />
 
       {/* 标签页切换 */}
       <Tabs

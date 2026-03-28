@@ -72,6 +72,8 @@
   align-items: center;
   justify-content: center;
   min-width: 80px;
+  flex: 1;
+  margin: 0 auto;
 }
 
 .chart-label {

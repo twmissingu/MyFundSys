@@ -3,6 +3,7 @@ import { Card, Toast } from 'antd-mobile';
 import { useHoldings } from '../hooks/useSync';
 import { fetchMarketValuation } from '../services/fundApi';
 import { formatMoney, formatPercent, getValuationStatus } from '../utils';
+import TotalAssetsCard from '../components/TotalAssetsCard';
 import type { MarketValuationData } from '../types';
 import './Layout.css';
 
@@ -25,12 +26,6 @@ const Dashboard: React.FC = () => {
       });
     }
   };
-
-  // 计算总资产
-  const totalAssets = holdings.reduce((sum, h) => sum + (h.currentValue || h.totalCost), 0);
-  const totalCost = holdings.reduce((sum, h) => sum + h.totalCost, 0);
-  const totalProfit = totalAssets - totalCost;
-  const totalProfitRate = totalCost > 0 ? totalProfit / totalCost : 0;
 
   // 估值状态
   const valuationStatus = valuation ? getValuationStatus(valuation.percentile) : null;
@@ -69,13 +64,7 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* 资产总览 */}
-      <div className="stat-card">
-        <div className="stat-label">总资产</div>
-        <div className="stat-value">{formatMoney(totalAssets)}</div>
-        <div className="stat-change" style={{ color: totalProfit >= 0 ? '#ffccc7' : '#b7eb8f' }}>
-          {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)} ({formatPercent(totalProfitRate)})
-        </div>
-      </div>
+      <TotalAssetsCard holdings={holdings} />
 
       {/* 持仓概览 */}
       <Card title="持仓概览" className="card">

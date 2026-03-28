@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working Principles
+
+以第一性原理！从原始需求和问题本质出发，不从惯例或模板出发。
+
+1. 不要假设我清楚自己想要什么。动机或目标不清晰时，停下来讨论。
+2. 目标清晰但路径不是最短的，直接告诉我并建议更好的办法。
+3. 遇到问题追根因，不打补丁。每个决策都要能回答"为什么"。
+4. 输出说重点，砍掉一切不改变决策的信息。
+
+---
+
 ## Project Overview
 
 个人基金投资管理系统，移动端 Web 应用。

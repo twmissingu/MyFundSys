@@ -95,41 +95,47 @@ export function useHoldings() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadHoldings = async () => {
-      try {
-        if (isSupabaseConfigured()) {
-          // 从 Supabase 获取
-          const { data, error } = await supabase.from('holdings').select('*');
-          if (!error && data) {
-            setHoldings(data.map((h: any) => ({
-              id: h.id,
-              fundId: h.fund_code,
-              fundCode: h.fund_code,
-              fundName: h.fund_name,
-              shares: h.shares,
-              avgCost: h.avg_nav,
-              totalCost: h.total_cost,
-              currentNav: h.current_nav,
-              currentValue: h.market_value,
-              profit: h.profit,
-              profitRate: h.profit_rate,
-              createdAt: h.created_at,
-              updatedAt: h.updated_at,
-            })));
-            return;
-          }
+  const loadHoldings = useCallback(async () => {
+    try {
+      if (isSupabaseConfigured()) {
+        // 从 Supabase 获取
+        const { data, error } = await supabase.from('holdings').select('*');
+        if (!error && data) {
+          setHoldings(data.map((h: any) => ({
+            id: h.id,
+            fundId: h.fund_code,
+            fundCode: h.fund_code,
+            fundName: h.fund_name,
+            shares: h.shares,
+            avgCost: h.avg_nav,
+            totalCost: h.total_cost,
+            currentNav: h.current_nav,
+            currentValue: h.market_value,
+            profit: h.profit,
+            profitRate: h.profit_rate,
+            createdAt: h.created_at,
+            updatedAt: h.updated_at,
+          })));
+          return;
         }
-        
-        // 降级：从本地数据库获取
-        const data = await db.holdings.toArray();
-        setHoldings(data);
-      } finally {
-        setLoading(false);
       }
-    };
-    loadHoldings();
+
+      // 降级：从本地数据库获取
+      const data = await db.holdings.toArray();
+      setHoldings(data);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadHoldings();
+  }, [loadHoldings]);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    await loadHoldings();
+  }, [loadHoldings]);
 
   const saveHolding = useCallback(async (holding: Omit<Holding, 'id' | 'createdAt' | 'updatedAt'>) => {
     const id = await db.holdings.add({
@@ -156,54 +162,60 @@ export function useHoldings() {
 
   const removeHolding = useCallback(async (id: string) => {
     await db.holdings.delete(id);
-    
+
     if (isSupabaseConfigured()) {
       await supabase.from('holdings').delete().eq('id', id);
     }
   }, []);
 
-  return { holdings, loading, saveHolding, removeHolding };
+  return { holdings, loading, saveHolding, removeHolding, refresh };
 }
 
 export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadTransactions = async () => {
-      try {
-        if (isSupabaseConfigured()) {
-          // 从 Supabase 获取
-          const { data, error } = await supabase.from('transactions').select('*');
-          if (!error && data) {
-            setTransactions(data.map((t: any) => ({
-              id: t.id,
-              fundId: t.fund_code,
-              fundCode: t.fund_code,
-              fundName: t.fund_name,
-              type: t.type,
-              date: t.date,
-              confirmDate: t.date,
-              amount: t.amount,
-              price: t.nav,
-              shares: t.shares,
-              fee: t.fee,
-              status: t.status,
-              createdAt: t.created_at,
-            })));
-            return;
-          }
+  const loadTransactions = useCallback(async () => {
+    try {
+      if (isSupabaseConfigured()) {
+        // 从 Supabase 获取
+        const { data, error } = await supabase.from('transactions').select('*');
+        if (!error && data) {
+          setTransactions(data.map((t: any) => ({
+            id: t.id,
+            fundId: t.fund_code,
+            fundCode: t.fund_code,
+            fundName: t.fund_name,
+            type: t.type,
+            date: t.date,
+            confirmDate: t.date,
+            amount: t.amount,
+            price: t.nav,
+            shares: t.shares,
+            fee: t.fee,
+            status: t.status,
+            createdAt: t.created_at,
+          })));
+          return;
         }
-        
-        // 降级：从本地数据库获取
-        const data = await db.transactions.toArray();
-        setTransactions(data);
-      } finally {
-        setLoading(false);
       }
-    };
-    loadTransactions();
+
+      // 降级：从本地数据库获取
+      const data = await db.transactions.toArray();
+      setTransactions(data);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    await loadTransactions();
+  }, [loadTransactions]);
 
   const saveTransaction = useCallback(async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
     const id = await db.transactions.add({
@@ -239,7 +251,7 @@ export function useTransactions() {
     }
   }, []);
 
-  return { transactions, loading, saveTransaction, removeTransaction };
+  return { transactions, loading, saveTransaction, removeTransaction, refresh };
 }
 
 // ============================================
