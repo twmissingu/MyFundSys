@@ -3,7 +3,7 @@ import { Card, Form, Input, Button, Toast } from 'antd-mobile';
 import { LockOutline } from 'antd-mobile-icons';
 import './Layout.css';
 
-const CORRECT_PASSWORD = '888';
+const CORRECT_PASSWORD = import.meta.env.VITE_APP_PASSWORD;
 
 interface AuthPageProps {
   onAuthSuccess: () => void;
