@@ -2,9 +2,6 @@
 -- 创建时间: 2024
 -- 描述: MyFundSys 核心数据表
 
--- 启用 UUID 扩展
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- 删除已存在的表（如果存在）
 DROP TABLE IF EXISTS favorite_funds CASCADE;
 DROP TABLE IF EXISTS holdings CASCADE;
@@ -15,7 +12,7 @@ DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
 
 -- 交易记录表
 CREATE TABLE transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     fund_code VARCHAR(10) NOT NULL,
     fund_name VARCHAR(100) NOT NULL,
     type VARCHAR(10) NOT NULL CHECK (type IN ('buy', 'sell')),
@@ -31,7 +28,7 @@ CREATE TABLE transactions (
 
 -- 持仓表
 CREATE TABLE holdings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     fund_code VARCHAR(10) NOT NULL UNIQUE,
     fund_name VARCHAR(100) NOT NULL,
     shares DECIMAL(15, 4) NOT NULL DEFAULT 0,
@@ -47,7 +44,7 @@ CREATE TABLE holdings (
 
 -- 基金收藏表
 CREATE TABLE favorite_funds (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     fund_code VARCHAR(10) NOT NULL UNIQUE,
     fund_name VARCHAR(100) NOT NULL,
     category VARCHAR(50),

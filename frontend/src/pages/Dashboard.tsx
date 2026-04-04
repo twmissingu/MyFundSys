@@ -1,19 +1,35 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Toast } from 'antd-mobile';
-import { useHoldings } from '../hooks/useSync';
+import { useHoldings, useTransactions } from '../hooks/useSync';
 import { fetchMarketValuation } from '../services/fundApi';
+import { processPendingTransactions } from '../services/navUpdateService';
 import { formatMoney, formatPercent, getValuationStatus } from '../utils';
 import TotalAssetsCard from '../components/TotalAssetsCard';
 import type { MarketValuationData } from '../types';
 import './Layout.css';
 
 const Dashboard: React.FC = () => {
-  const { holdings } = useHoldings();
+  const { holdings, refresh } = useHoldings();
+  const { transactions } = useTransactions();
   const [valuation, setValuation] = useState<MarketValuationData | null>(null);
 
   useEffect(() => {
     loadValuation();
+    processPendingTransactions().then((result) => {
+      if (result.processedCount > 0) {
+        Toast.show({
+          content: `已处理 ${result.processedCount} 笔在途交易`,
+          position: 'bottom'
+        });
+        refresh();
+      }
+    });
   }, []);
+
+  // 计算在途买入金额
+  const pendingBuyAmount = transactions
+    .filter(t => t.status === 'pending' && t.type === 'buy')
+    .reduce((sum, t) => sum + t.amount, 0);
 
   const loadValuation = async () => {
     try {
@@ -64,7 +80,7 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* 资产总览 */}
-      <TotalAssetsCard holdings={holdings} />
+      <TotalAssetsCard holdings={holdings} pendingBuyAmount={pendingBuyAmount} />
 
       {/* 持仓概览 */}
       <Card title="持仓概览" className="card">
@@ -99,16 +115,6 @@ const Dashboard: React.FC = () => {
             )}
           </div>
         )}
-      </Card>
-
-      {/* 投资格言 */}
-      <Card className="card" style={{ background: '#f6ffed', border: '1px solid #b7eb8f' }}>
-        <div style={{ fontSize: 14, color: '#389e0d', lineHeight: 1.6 }}>
-          <strong>E大投资理念</strong>
-          <p style={{ margin: '8px 0 0 0' }}>
-            "估值不会告诉你明天涨还是跌，但它会告诉你哪里安全，哪里危险。"
-          </p>
-        </div>
       </Card>
     </div>
   );

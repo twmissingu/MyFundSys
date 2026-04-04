@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Tag, Toast, SpinLoading, Button } from 'antd-mobile';
 import { LeftOutline, StarFill } from 'antd-mobile-icons';
 import { fetchFundNav } from '../services/fundApi';
-import { db } from '../db';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { formatMoney } from '../utils';
 import FundHistoryCard from '../components/FundHistoryCard';
 import type { FundApiData } from '../types';
@@ -39,16 +39,21 @@ const FundDetail: React.FC = () => {
     const loadFundInfo = async () => {
       if (!fundCode) return;
       
-      // 检查是否已收藏
-      const favorite = await db.favoriteFunds.where('code').equals(fundCode).first();
-      setIsFavorite(!!favorite);
-      
-      if (favorite) {
-        setFundInfo({
-          code: favorite.code,
-          name: favorite.name,
-          category: favorite.category || '未知',
-        });
+      if (isSupabaseConfigured()) {
+        const { data: favorite } = await supabase
+          .from('favorite_funds')
+          .select('*')
+          .eq('fund_code', fundCode)
+          .single();
+        setIsFavorite(!!favorite);
+        
+        if (favorite) {
+          setFundInfo({
+            code: favorite.fund_code,
+            name: favorite.fund_name,
+            category: favorite.category || '未知',
+          });
+        }
       }
     };
     

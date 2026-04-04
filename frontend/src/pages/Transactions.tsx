@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading, Picker } from 'antd-mobile';
 import { AddOutline } from 'antd-mobile-icons';
 
-import { useTransactions, updateLocalHoldingAfterTransaction, useHoldings } from '../hooks/useSync';
-import { db, FundCacheItem } from '../db';
+import { useTransactions, useHoldings } from '../hooks/useSync';
+import { addTransactionWithHoldingUpdate, processPendingTransactions } from '../services/navUpdateService';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { searchByCode, fetchFundNav } from '../services/fundApi';
-import type { FundSearchResult, Transaction } from '../types';
+import { searchByCode, fetchFundNav, fetchFundHistory } from '../services/fundApi';
+import type { FundSearchResult } from '../types';
 import { formatMoney, formatDate } from '../utils';
 import './Layout.css';
 
@@ -58,9 +58,9 @@ const Transactions: React.FC = () => {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
-  const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [form] = Form.useForm();
+  const [dialogDate, setDialogDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
   // 基金代码搜索相关状态
   const [codeSearchText, setCodeSearchText] = useState('');
@@ -71,16 +71,10 @@ const Transactions: React.FC = () => {
   // 当前交易类型和基金净值
   const [currentTradeType, setCurrentTradeType] = useState<'buy' | 'sell'>('buy');
   const [currentNav, setCurrentNav] = useState<number | null>(null);
+  const [selectedDateNav, setSelectedDateNav] = useState<{ nav: number; date: string } | null>(null);
+  const [isDateNavLoading, setIsDateNavLoading] = useState(false);
+  const [isPendingNav, setIsPendingNav] = useState(false);
 
-  // 加载基金缓存
-  useEffect(() => {
-    const loadFundCache = async () => {
-      const funds = await db.fundCache.toArray();
-      setFundCache(funds);
-    };
-    loadFundCache();
-  }, []);
-  
   // 防抖搜索基金代码
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -116,6 +110,8 @@ const Transactions: React.FC = () => {
     setCodeSearchResults([]);
     setSelectedFund(null);
     setCurrentNav(null);
+    setSelectedDateNav(null);
+    setIsPendingNav(false);
     form.setFieldsValue({ fundCode: undefined, amount: undefined, shares: undefined, fee: undefined });
   };
   
@@ -127,7 +123,7 @@ const Transactions: React.FC = () => {
     form.setFieldsValue({ amount: undefined, shares: undefined, fee: undefined });
   };
   
-  // 获取基金净值
+  // 获取基金净值（最新净值）
   useEffect(() => {
     const fetchNav = async () => {
       if (selectedFund?.code) {
@@ -143,6 +139,97 @@ const Transactions: React.FC = () => {
     };
     fetchNav();
   }, [selectedFund]);
+
+  // 监听对话框日期变化，获取该日期的净值
+  useEffect(() => {
+    if (!dialogDate || !selectedFund?.code) {
+      setSelectedDateNav(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchDateNav = async () => {
+      const today = new Date().toISOString().split('T')[0];
+      
+      if (dialogDate === today) {
+        if (!isTradeDay(new Date())) {
+          setIsPendingNav(true);
+          setSelectedDateNav(null);
+          return;
+        }
+        if (currentNav) {
+          setIsPendingNav(false);
+          setSelectedDateNav({ nav: currentNav, date: today });
+        } else {
+          setIsPendingNav(true);
+          setSelectedDateNav(null);
+        }
+        return;
+      }
+
+      setIsDateNavLoading(true);
+      try {
+        let historyData = await fetchFundHistory(selectedFund.code, 1, 1, dialogDate, dialogDate);
+        if (cancelled) return;
+
+        if (historyData.length > 0) {
+          setIsPendingNav(false);
+          setSelectedDateNav({ nav: historyData[0].nav, date: historyData[0].date });
+        } else {
+          const nextData = await fetchFundHistory(selectedFund.code, 5, 1, dialogDate, '');
+          if (cancelled) return;
+
+          if (nextData.length > 0) {
+            const nextRecord = nextData[nextData.length - 1];
+            if (nextRecord.date >= dialogDate) {
+              setIsPendingNav(false);
+              setSelectedDateNav({ nav: nextRecord.nav, date: nextRecord.date });
+            } else {
+              setIsPendingNav(true);
+              setSelectedDateNav(null);
+            }
+          } else {
+            setIsPendingNav(true);
+            setSelectedDateNav(null);
+          }
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error('获取历史净值失败:', error);
+        setIsPendingNav(true);
+        setSelectedDateNav(null);
+      } finally {
+        if (!cancelled) setIsDateNavLoading(false);
+      }
+    };
+
+    fetchDateNav();
+    return () => { cancelled = true; };
+  }, [dialogDate, selectedFund?.code, currentNav]);
+
+  // 当净值数据更新时，自动重新计算份额/金额
+  useEffect(() => {
+    // 如果在途状态，清空计算结果
+    if (isPendingNav) {
+      form.setFieldsValue({ shares: undefined, amount: undefined });
+      return;
+    }
+
+    const nav = selectedDateNav?.nav || currentNav;
+    if (!nav) return;
+
+    const amount = parseFloat(form.getFieldValue('amount') || '0');
+    const shares = parseFloat(form.getFieldValue('shares') || '0');
+
+    if (currentTradeType === 'buy' && amount > 0) {
+      const newShares = amount / nav;
+      form.setFieldsValue({ shares: newShares.toFixed(2) });
+    } else if (currentTradeType === 'sell' && shares > 0) {
+      const newAmount = shares * nav;
+      form.setFieldsValue({ amount: newAmount.toFixed(2) });
+    }
+  }, [selectedDateNav, currentNav, currentTradeType, form, isPendingNav]);
 
   // 从交易记录中提取所有唯一的基金代码（用于筛选）
   const uniqueFundCodes = Array.from(new Set(transactions.map(t => t.fundCode)));
@@ -190,7 +277,8 @@ const Transactions: React.FC = () => {
         try {
           await removeTransaction(id);
           Toast.show({ content: '删除成功', position: 'bottom' });
-          window.location.reload();
+          await refresh();
+          await refreshHoldings();
         } catch (error) {
           Toast.show({ content: '删除失败', position: 'bottom' });
         }
@@ -198,188 +286,111 @@ const Transactions: React.FC = () => {
     });
   };
 
-  /**
-   * 处理在途交易
-   *
-   * 在途交易是指已提交但净值尚未公布的交易（通常发生在交易日21:00前）。
-   * 此函数在页面加载时自动执行，检查并处理所有待确认的交易：
-   *
-   * 处理流程：
-   * 1. 获取所有 status='pending' 的交易
-   * 2. 调用 API 获取最新净值
-   * 3. 检查净值日期是否已过确认日期（避免使用未来日期的净值）
-   * 4. 根据净值计算实际份额/金额
-   * 5. 更新交易记录为 'completed'
-   * 6. 同步更新持仓数据
-   *
-   * @returns 无返回值，处理成功会刷新页面
-   */
-  const processPendingTransactions = async () => {
-    try {
-      // 获取所有在途交易
-      const pendingTransactions = await db.transactions
-        .where('status')
-        .equals('pending')
-        .toArray();
-      
-      if (pendingTransactions.length === 0) return;
-      
-      console.log(`[Pending] 发现 ${pendingTransactions.length} 笔在途交易`);
-      let processedCount = 0;
-      
-      for (const transaction of pendingTransactions) {
-        try {
-          // 尝试获取净值
-          const navData = await fetchFundNav(transaction.fundCode);
-          
-          if (navData && navData.nav > 0) {
-            // 检查净值日期是否已经过了确认日期
-            const confirmDate = transaction.confirmDate || transaction.date;
-            const navDate = navData.navDate || new Date().toISOString().split('T')[0];
-            
-            // 如果净值日期早于确认日期，说明确认日的净值还未公布
-            if (navDate < confirmDate) {
-              console.log(`[Pending] 净值未更新，等待中: ${transaction.fundCode}, 确认日: ${confirmDate}, 净值日: ${navDate}`);
-              continue;
-            }
-            
-            // 有净值数据且日期已过确认日，处理在途交易
-            const tradePrice = navData.nav;
-            let shares: number;
-            let amount: number;
-            
-            if (transaction.type === 'buy') {
-              // 买入：根据金额计算份额
-              amount = transaction.amount;
-              shares = amount / tradePrice;
-            } else {
-              // 卖出：根据份额计算金额
-              shares = transaction.shares;
-              amount = shares * tradePrice;
-            }
-            
-            // 更新交易记录
-            await db.transactions.update(transaction.id, {
-              price: tradePrice,
-              shares: shares,
-              amount: amount,
-              status: 'completed',
-            });
-            
-            // 更新持仓
-            const existingHolding = await db.holdings.where('fundCode').equals(transaction.fundCode).first();
-            const updatedHolding = updateLocalHoldingAfterTransaction(
-              existingHolding,
-              {
-                ...transaction,
-                price: tradePrice,
-                shares: shares,
-                amount: amount,
-              }
-            );
-            if (existingHolding) {
-              await db.holdings.update(existingHolding.id, updatedHolding);
-            } else {
-              await db.holdings.add(updatedHolding);
-            }
-            
-            processedCount++;
-            console.log(`[Pending] 处理完成: ${transaction.fundCode}, 确认日: ${confirmDate}, 使用净值: ${navDate}`);
-          }
-        } catch (error) {
-          console.error(`[Pending] 处理失败 ${transaction.fundCode}:`, error);
-        }
-      }
-      
-      if (processedCount > 0) {
-        Toast.show({
-          content: `已处理 ${processedCount} 笔在途交易`,
-          position: 'bottom'
-        });
-        window.location.reload();
-      }
-    } catch (error) {
-      console.error('[Pending] 处理在途交易失败:', error);
-    }
-  };
-
   // 进入页面时自动处理在途交易
   useEffect(() => {
-    processPendingTransactions();
+    processPendingTransactions().then((result) => {
+      if (result.processedCount > 0) {
+        Toast.show({
+          content: `已处理 ${result.processedCount} 笔在途交易`,
+          position: 'bottom'
+        });
+        refresh();
+        refreshHoldings();
+      }
+    });
   }, []);
 
   const handleAddTransaction = async (values: any) => {
     try {
-      // 从缓存中查找基金
-      let fund = fundCache.find(f => f.code === values.fundCode);
-      
-      // 如果缓存中没有，尝试从收藏基金中查找
-      if (!fund) {
-        const favoriteFund = await db.favoriteFunds.where('code').equals(values.fundCode).first();
-        if (favoriteFund) {
-          fund = {
-            id: favoriteFund.id,
-            code: favoriteFund.code,
-            name: favoriteFund.name,
-            category: favoriteFund.category,
-            source: 'system',
-            isHolding: false,
-            holdingShares: 0,
-            searchCount: 0,
-            lastUpdated: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          } as FundCacheItem;
-        }
-      }
-      
-      if (!fund) {
-        Toast.show({ 
-          content: '请先搜索添加该基金到列表', 
-          position: 'bottom' 
-        });
+      // 使用已选择的基金（用户在搜索框中选择的）
+      if (!selectedFund) {
+        Toast.show({ content: '请先选择基金', position: 'bottom' });
         return;
       }
 
-      // 获取当日净值作为成交价格
-      let tradePrice = currentNav;
-      if (!tradePrice) {
-        try {
-          const navData = await fetchFundNav(fund.code);
-          tradePrice = navData?.nav || 0;
-        } catch (error) {
-          console.log('无法获取净值，将创建在途交易');
+      // 自动收藏基金（如果未收藏）
+      if (isSupabaseConfigured()) {
+        const { data: existing } = await supabase
+          .from('favorite_funds')
+          .select('id')
+          .eq('fund_code', selectedFund.code)
+          .single();
+        if (!existing) {
+          await supabase.from('favorite_funds').insert({
+            fund_code: selectedFund.code,
+            fund_name: selectedFund.name,
+            category: selectedFund.type,
+          } as any);
         }
       }
 
-      // 判断净值是否已出：根据交易日期和当前时间判断
+      // 优先使用已获取的日期净值
       const tradeDate = new Date(values.date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       tradeDate.setHours(0, 0, 0, 0);
-      
-      // 净值公布时间：交易日当晚约 20:00-21:00 后
-      const now = new Date();
-      const isAfterNavTime = now.getHours() >= 21; // 晚上9点后认为净值已出
-      
-      // 判断交易日期是否为交易日，如果不是，获取下一个交易日
       const actualTradeDay = isTradeDay(tradeDate) ? tradeDate : getNextTradeDay(tradeDate);
       
-      // 判断是否为在途交易：
-      // 1. 无法获取净值或净值为0
-      // 2. 实际交易日是未来的日期
-      // 3. 实际交易日是今天但净值还没出（晚上9点前）
-      let isPending = !tradePrice || tradePrice <= 0;
+      let tradePrice: number | null = null;
+      let isPending = false;
       
-      if (actualTradeDay > today) {
-        // 实际交易日是未来日期，净值肯定未出
-        isPending = true;
-      } else if (actualTradeDay.getTime() === today.getTime() && !isAfterNavTime) {
-        // 实际交易日是今天但晚上9点前，净值可能未出，标记为在途
+      // 优先使用已获取的日期净值
+      if (selectedDateNav && selectedDateNav.date === values.date) {
+        tradePrice = selectedDateNav.nav;
+      }
+      
+      // 如果没有，尝试获取
+      if (!tradePrice) {
+        const isHistoricalDate = actualTradeDay < today;
+        
+        if (isHistoricalDate) {
+          try {
+            // 先尝试精确匹配
+            let historyData = await fetchFundHistory(selectedFund.code, 1, 1, values.date, values.date);
+            if (historyData.length > 0) {
+              tradePrice = historyData[0].nav;
+            } else {
+              // 精确匹配失败（非交易日）：查找下一交易日净值
+              const nextData = await fetchFundHistory(selectedFund.code, 5, 1, values.date, '');
+              if (nextData.length > 0) {
+                const nextRecord = nextData[nextData.length - 1];
+                if (nextRecord.date >= values.date) {
+                  tradePrice = nextRecord.nav;
+                }
+              }
+            }
+          } catch (error) {
+            console.error('获取历史净值失败:', error);
+          }
+        } else {
+          // 今天或未来：检查是否是交易日
+          if (!isTradeDay(tradeDate)) {
+            isPending = true;
+          } else {
+            tradePrice = currentNav;
+            if (!tradePrice) {
+              try {
+                const navData = await fetchFundNav(selectedFund.code);
+                tradePrice = navData?.nav || 0;
+              } catch (error) {
+                console.log('无法获取净值');
+              }
+            }
+            
+            const isAfterNavTime = new Date().getHours() >= 21;
+            if (actualTradeDay > today) {
+              isPending = true;
+            } else if (actualTradeDay.getTime() === today.getTime() && !isAfterNavTime) {
+              isPending = true;
+            }
+          }
+        }
+      }
+      
+      if (!tradePrice || tradePrice <= 0) {
         isPending = true;
       }
       
-      // 如果在途，使用实际交易日作为确认日期（用于后续自动处理）
       const confirmDate = actualTradeDay.toISOString().split('T')[0];
       
       // 根据交易类型计算份额和金额
@@ -399,10 +410,10 @@ const Transactions: React.FC = () => {
         finalPrice = isPending ? 0 : (tradePrice || 0);
       }
 
-      const transactionId = await saveTransaction({
-        fundId: fund.id,
-        fundCode: fund.code,
-        fundName: fund.name,
+      await addTransactionWithHoldingUpdate({
+        fundId: selectedFund.code,
+        fundCode: selectedFund.code,
+        fundName: selectedFund.name,
         type: values.type,
         date: values.date,
         confirmDate: confirmDate,
@@ -412,48 +423,6 @@ const Transactions: React.FC = () => {
         fee: 0,
         status: isPending ? 'pending' : 'completed',
       });
-
-      // 对已完成交易，更新持仓
-      if (!isPending) {
-        const transaction: Transaction = {
-          id: transactionId as string,
-          fundId: fund.id,
-          fundCode: fund.code,
-          fundName: fund.name,
-          type: values.type,
-          date: values.date,
-          amount: amount,
-          price: finalPrice,
-          shares: shares,
-          status: 'completed',
-          createdAt: new Date().toISOString(),
-        };
-
-        const existingHolding = await db.holdings.where('fundCode').equals(fund.code).first();
-        const updatedHolding = updateLocalHoldingAfterTransaction(existingHolding, transaction);
-
-        if (existingHolding) {
-          await db.holdings.update(existingHolding.id, updatedHolding);
-        } else {
-          await db.holdings.add(updatedHolding);
-        }
-
-        // 同步到 Supabase
-        if (isSupabaseConfigured()) {
-          const payload = {
-            fund_code: updatedHolding.fundCode,
-            fund_name: updatedHolding.fundName,
-            shares: updatedHolding.shares,
-            avg_cost: updatedHolding.avgCost,
-            total_cost: updatedHolding.totalCost,
-          };
-          if (existingHolding) {
-            await (supabase.from('holdings') as any).update(payload).eq('id', updatedHolding.id);
-          } else {
-            await supabase.from('holdings').insert({ ...payload, id: updatedHolding.id } as any);
-          }
-        }
-      }
 
       if (isPending) {
         Toast.show({
@@ -515,7 +484,10 @@ const Transactions: React.FC = () => {
       <Button
         block
         color="primary"
-        onClick={() => setShowAddDialog(true)}
+        onClick={() => {
+          setDialogDate(new Date().toISOString().split('T')[0]);
+          setShowAddDialog(true);
+        }}
         style={{ marginBottom: 12 }}
       >
         <AddOutline /> 添加交易
@@ -841,25 +813,37 @@ const Transactions: React.FC = () => {
               rules={[{ required: true }]}
               initialValue={new Date().toISOString().split('T')[0]}
             >
-              <Input type="date" style={{ height: 44 }} />
+              <Input type="date" style={{ height: 44 }} onChange={(val) => {
+                setDialogDate(val || new Date().toISOString().split('T')[0]);
+              }} />
             </Form.Item>
 
             {currentTradeType === 'buy' ? (
               <>
                 <Form.Item
                   name="amount"
-                  label="买入金额（元）"
-                  rules={[{ required: true, message: '请输入买入金额' }]}
-                  help={currentNav ? `当前净值: ${currentNav.toFixed(4)}` : ''}
+                  label="交易金额（元）"
+                  rules={[{ required: true, message: '请输入交易金额' }]}
+                  help={isPendingNav
+                    ? '在途交易，净值待定'
+                    : selectedDateNav 
+                      ? `净值: ${selectedDateNav.nav.toFixed(4)} (${selectedDateNav.date})` 
+                      : isDateNavLoading 
+                        ? '正在获取净值...' 
+                        : currentNav 
+                          ? `当前净值: ${currentNav.toFixed(4)}（选择日期后将使用对应净值）` 
+                          : '在途交易，净值待定'}
                 >
                   <Input
                     type="number"
                     placeholder="0.00"
                     style={{ height: 44 }}
                     onChange={(val) => {
+                      if (isPendingNav) return;
                       const amount = parseFloat(val || '0');
-                      if (amount > 0 && currentNav) {
-                        const shares = amount / currentNav;
+                      const nav = selectedDateNav?.nav || currentNav;
+                      if (amount > 0 && nav) {
+                        const shares = amount / nav;
                         form.setFieldsValue({ shares: shares.toFixed(2) });
                       }
                     }}
@@ -867,7 +851,7 @@ const Transactions: React.FC = () => {
                 </Form.Item>
                 <Form.Item
                   name="shares"
-                  label="获得份额"
+                  label="交易份额"
                   style={{ marginBottom: 0 }}
                 >
                   <Input type="number" disabled placeholder="自动计算" style={{ height: 44 }} />
@@ -877,18 +861,28 @@ const Transactions: React.FC = () => {
               <>
                 <Form.Item
                   name="shares"
-                  label="卖出份额"
-                  rules={[{ required: true, message: '请输入卖出份额' }]}
-                  help={currentNav ? `当前净值: ${currentNav.toFixed(4)}` : ''}
+                  label="交易份额"
+                  rules={[{ required: true, message: '请输入交易份额' }]}
+                  help={isPendingNav
+                    ? '在途交易，净值待定'
+                    : selectedDateNav 
+                      ? `净值: ${selectedDateNav.nav.toFixed(4)} (${selectedDateNav.date})` 
+                      : isDateNavLoading 
+                        ? '正在获取净值...' 
+                        : currentNav 
+                          ? `当前净值: ${currentNav.toFixed(4)}` 
+                          : '在途交易，净值待定'}
                 >
                   <Input
                     type="number"
                     placeholder="0.00"
                     style={{ height: 44 }}
                     onChange={(val) => {
+                      if (isPendingNav) return;
                       const shares = parseFloat(val || '0');
-                      if (shares > 0 && currentNav) {
-                        const amount = shares * currentNav;
+                      const nav = selectedDateNav?.nav || currentNav;
+                      if (shares > 0 && nav) {
+                        const amount = shares * nav;
                         form.setFieldsValue({ amount: amount.toFixed(2) });
                       }
                     }}
@@ -896,7 +890,7 @@ const Transactions: React.FC = () => {
                 </Form.Item>
                 <Form.Item
                   name="amount"
-                  label="卖出金额（元）"
+                  label="交易金额（元）"
                   style={{ marginBottom: 0 }}
                 >
                   <Input type="number" disabled placeholder="自动计算" style={{ height: 44 }} />

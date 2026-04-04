@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, SwipeAction, Toast, SpinLoading } from 'antd-mobile';
 import { StarFill } from 'antd-mobile-icons';
-import { db, FavoriteFund } from '../db';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { fetchFundNav } from '../services/fundApi';
 import { batchGetFundHistory, MiniHistoryPoint } from '../services/fundApi';
 import SparklineChart from './SparklineChart';
 import type { FundApiData } from '../types';
 import './FavoriteFunds.css';
+
+interface FavoriteFund {
+  id: string;
+  fund_code: string;
+  fund_name: string;
+  category?: string;
+  created_at: string;
+}
 
 interface FundWithData extends FavoriteFund {
   navData?: FundApiData | null;
@@ -22,7 +30,6 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
   const [loading, setLoading] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // 初始加载
   useEffect(() => {
     loadFavorites();
   }, []);
@@ -30,26 +37,30 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
   const loadFavorites = async () => {
     try {
       setLoading(true);
-      const list = await db.favoriteFunds
-        .orderBy('createdAt')
-        .reverse()
-        .toArray();
-      
-      // 获取实时净值（优先）
+      if (!isSupabaseConfigured()) {
+        setFavorites([]);
+        return;
+      }
+
+      const { data: list, error } = await supabase
+        .from('favorite_funds')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
       const listWithNav = await Promise.all(
-        list.map(async (fund) => {
+        (list || []).map(async (fund: FavoriteFund) => {
           try {
-            const navData = await fetchFundNav(fund.code);
+            const navData = await fetchFundNav(fund.fund_code);
             return { ...fund, navData };
-          } catch (error) {
+          } catch {
             return fund;
           }
         })
       );
       
       setFavorites(listWithNav);
-      
-      // 再异步加载历史数据（用于图表）
       loadHistoryData(listWithNav);
     } catch (error) {
       console.error('加载收藏失败:', error);
@@ -58,18 +69,17 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
     }
   };
 
-  // 加载历史数据（带缓存优化）
   const loadHistoryData = async (funds: FundWithData[]) => {
     if (funds.length === 0) return;
     
     setLoadingHistory(true);
     try {
-      const codes = funds.map(f => f.code);
-      const historyMap = await batchGetFundHistory(codes, 90); // 3个月
+      const codes = funds.map(f => f.fund_code);
+      const historyMap = await batchGetFundHistory(codes, 90);
       
       setFavorites(prev => prev.map(fund => ({
         ...fund,
-        historyData: historyMap[fund.code] || []
+        historyData: historyMap[fund.fund_code] || []
       })));
     } catch (error) {
       console.error('加载历史数据失败:', error);
@@ -80,7 +90,7 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
 
   const handleRemove = async (id: string) => {
     try {
-      await db.favoriteFunds.delete(id);
+      await supabase.from('favorite_funds').delete().eq('id', id);
       await loadFavorites();
       Toast.show({ content: '已取消收藏', position: 'bottom' });
     } catch (error) {
@@ -90,13 +100,12 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
 
   const handleClick = (fund: FundWithData) => {
     if (onSelectFund) {
-      onSelectFund(fund.code, fund.name);
+      onSelectFund(fund.fund_code, fund.fund_name);
     } else {
-      window.location.hash = `fund/${fund.code}`;
+      window.location.hash = `fund/${fund.fund_code}`;
     }
   };
 
-  // 刷新净值数据
   const handleRefresh = useCallback(async () => {
     setLoading(true);
     await loadFavorites();
@@ -160,13 +169,11 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
               className="favorite-item"
               onClick={() => handleClick(fund)}
             >
-              {/* 左侧：基金信息 */}
               <div className="favorite-info">
-                <div className="favorite-name">{fund.name}</div>
-                <div className="favorite-code">{fund.code}</div>
+                <div className="favorite-name">{fund.fund_name}</div>
+                <div className="favorite-code">{fund.fund_code}</div>
               </div>
               
-              {/* 中部：三月走势迷你图 */}
               <div className="favorite-chart">
                 <SparklineChart 
                   data={fund.historyData || []} 
@@ -176,7 +183,6 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
                 <div className="chart-label">近三月</div>
               </div>
               
-              {/* 右侧：净值信息 */}
               <div className="favorite-nav">
                 {fund.navData ? (
                   <>

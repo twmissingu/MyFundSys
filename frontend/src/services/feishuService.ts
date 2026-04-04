@@ -14,32 +14,28 @@
  * 4. 可选择启用签名验证
  */
 
-import { db, type FeishuConfig } from '../db';
+import type { FeishuConfig } from '../db';
 
-// ============================================
-// 获取/更新配置
-// ============================================
+const STORAGE_KEY = 'feishu_config';
 
 export async function getFeishuConfig(): Promise<FeishuConfig | undefined> {
-  return db.feishuConfig.toCollection().first();
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function saveFeishuConfig(config: Omit<FeishuConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<void> {
-  const existing = await db.feishuConfig.toCollection().first();
   const now = new Date().toISOString();
-  
-  if (existing?.id) {
-    await db.feishuConfig.update(existing.id, {
-      ...config,
-      updatedAt: now,
-    });
-  } else {
-    await db.feishuConfig.add({
-      ...config,
-      createdAt: now,
-      updatedAt: now,
-    } as FeishuConfig);
-  }
+  const fullConfig: FeishuConfig = {
+    ...config,
+    id: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(fullConfig));
 }
 
 // ============================================

@@ -11,13 +11,11 @@ vi.mock('../../lib/supabase', () => ({
 }));
 
 import { searchByCode, searchByName, fetchFundNav, fetchFundHistory, clearNavCache } from '../../services/fundApi';
-import { db } from '../../db';
 
-// 每个测试前重置 mock 队列 + 清除内存缓存 + 清除 IndexedDB 缓存
-beforeEach(async () => {
+// 每个测试前重置 mock 队列 + 清除内存缓存
+beforeEach(() => {
   mockInvoke.mockReset();
   clearNavCache();
-  await db.fundCache.clear();
 });
 
 describe('searchByCode', () => {
@@ -146,7 +144,7 @@ describe('fetchFundNav', () => {
     expect(mockInvoke).toHaveBeenCalledTimes(2);
     expect(mockInvoke).toHaveBeenNthCalledWith(1, 'fund-nav', { body: { code: '000001' } });
     expect(mockInvoke).toHaveBeenNthCalledWith(2, 'fund-history', {
-      body: { code: '000001', pageSize: 5, pageIndex: 1, startDate: '' },
+      body: { code: '000001', pageSize: 5, pageIndex: 1, startDate: '', endDate: '' },
     });
 
     expect(result).not.toBeNull();
@@ -176,7 +174,7 @@ describe('fetchFundHistory', () => {
     const result = await fetchFundHistory('000001', 5, 1, '');
 
     expect(mockInvoke).toHaveBeenCalledWith('fund-history', {
-      body: { code: '000001', pageSize: 5, pageIndex: 1, startDate: '' },
+      body: { code: '000001', pageSize: 5, pageIndex: 1, startDate: '', endDate: '' },
     });
     expect(result).toHaveLength(1);
     expect(result[0].date).toBe('2024-01-15');

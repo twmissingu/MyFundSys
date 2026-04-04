@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { updateLocalHoldingAfterTransaction } from '../../hooks/useSync';
+import { updateLocalHoldingAfterTransaction } from '../../services/navUpdateService';
 import type { Holding, Transaction } from '../../types';
 
 // ---- 工具：构造测试用 Transaction ----
@@ -43,19 +43,21 @@ describe('updateLocalHoldingAfterTransaction - 买入新基金', () => {
     const tx = makeBuyTx();
     const result = updateLocalHoldingAfterTransaction(undefined, tx);
 
-    expect(result.fundCode).toBe('000001');
-    expect(result.shares).toBe(1000);
-    expect(result.avgCost).toBe(1.0);
-    expect(result.totalCost).toBe(1000);
+    expect(result.holding).not.toBeNull();
+    expect(result.holding!.fundCode).toBe('000001');
+    expect(result.holding!.shares).toBe(1000);
+    expect(result.holding!.avgCost).toBe(1.0);
+    expect(result.holding!.totalCost).toBe(1000);
+    expect(result.shouldDelete).toBe(false);
   });
 
   it('新建持仓包含完整字段', () => {
     const tx = makeBuyTx();
     const result = updateLocalHoldingAfterTransaction(undefined, tx);
 
-    expect(result.id).toBeDefined();
-    expect(result.createdAt).toBeDefined();
-    expect(result.updatedAt).toBeDefined();
+    expect(result.holding!.id).toBeDefined();
+    expect(result.holding!.createdAt).toBeDefined();
+    expect(result.holding!.updatedAt).toBeDefined();
   });
 });
 
@@ -66,8 +68,9 @@ describe('updateLocalHoldingAfterTransaction - 买入追加', () => {
 
     const result = updateLocalHoldingAfterTransaction(existing, tx);
 
-    expect(result.shares).toBeCloseTo(1416.67, 1);
-    expect(result.totalCost).toBeCloseTo(1500, 1);
+    expect(result.holding!.shares).toBeCloseTo(1416.67, 1);
+    expect(result.holding!.totalCost).toBeCloseTo(1500, 1);
+    expect(result.shouldDelete).toBe(false);
   });
 
   it('追加买入时均价重新计算', () => {
@@ -77,7 +80,7 @@ describe('updateLocalHoldingAfterTransaction - 买入追加', () => {
     const result = updateLocalHoldingAfterTransaction(existing, tx);
 
     // (1000+1000) / (1000+500) ≈ 1.333
-    expect(result.avgCost).toBeCloseTo(1.333, 2);
+    expect(result.holding!.avgCost).toBeCloseTo(1.333, 2);
   });
 });
 
@@ -88,7 +91,8 @@ describe('updateLocalHoldingAfterTransaction - 卖出', () => {
 
     const result = updateLocalHoldingAfterTransaction(existing, tx);
 
-    expect(result.shares).toBe(700);
+    expect(result.holding!.shares).toBe(700);
+    expect(result.shouldDelete).toBe(false);
   });
 
   it('卖出后总成本正确减少', () => {
@@ -97,7 +101,7 @@ describe('updateLocalHoldingAfterTransaction - 卖出', () => {
 
     const result = updateLocalHoldingAfterTransaction(existing, tx);
 
-    expect(result.totalCost).toBeCloseTo(550, 1);
+    expect(result.holding!.totalCost).toBeCloseTo(550, 1);
   });
 
   it('卖出后均价重新计算（totalCost/shares）', () => {
@@ -107,16 +111,16 @@ describe('updateLocalHoldingAfterTransaction - 卖出', () => {
     const result = updateLocalHoldingAfterTransaction(existing, tx);
 
     // avgCost = totalCost / shares = 550/700 ≈ 0.786
-    expect(result.avgCost).toBeCloseTo(550 / 700, 3);
+    expect(result.holding!.avgCost).toBeCloseTo(550 / 700, 3);
   });
 
-  it('全部卖出后份额为0，均价为0', () => {
+  it('全部卖出后应标记删除', () => {
     const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
     const tx = makeSellTx({ shares: 1000, amount: 1500 });
 
     const result = updateLocalHoldingAfterTransaction(existing, tx);
 
-    expect(result.shares).toBe(0);
-    expect(result.avgCost).toBe(0);
+    expect(result.holding).toBeNull();
+    expect(result.shouldDelete).toBe(true);
   });
 });

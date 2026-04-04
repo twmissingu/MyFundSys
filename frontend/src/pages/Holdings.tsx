@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, List, Toast, SwipeAction, Tabs, Tag, Dialog } from 'antd-mobile';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
-import { useHoldings } from '../hooks/useSync';
-import { db, FundCacheItem } from '../db';
+import { useHoldings, useTransactions } from '../hooks/useSync';
+import { processPendingTransactions } from '../services/navUpdateService';
 import { formatMoney, formatPercent } from '../utils';
 import TotalAssetsCard from '../components/TotalAssetsCard';
 import './Layout.css';
@@ -11,30 +11,38 @@ import './Layout.css';
 const COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fadb14'];
 
 const Holdings: React.FC = () => {
-  const { holdings, loading, removeHolding } = useHoldings();
-  const [fundCache, setFundCache] = useState<FundCacheItem[]>([]);
+  const { holdings, loading, removeHolding, refresh } = useHoldings();
+  const { transactions } = useTransactions();
   const [activeTab, setActiveTab] = useState('list');
 
 
-  // 加载基金缓存
+  // 加载在途交易
   useEffect(() => {
-    const loadFundCache = async () => {
-      const funds = await db.fundCache.toArray();
-      setFundCache(funds);
-    };
-    loadFundCache();
+    processPendingTransactions().then((result) => {
+      if (result.processedCount > 0) {
+        Toast.show({
+          content: `已处理 ${result.processedCount} 笔在途交易`,
+          position: 'bottom'
+        });
+        refresh();
+      }
+    });
   }, []);
 
+  // 计算在途买入金额
+  const pendingBuyAmount = transactions
+    .filter(t => t.status === 'pending' && t.type === 'buy')
+    .reduce((sum, t) => sum + t.amount, 0);
+
   // 计算总资产（用于统计图表）
-  const totalAssets = holdings.reduce((sum, h) => sum + (h.currentValue || h.totalCost), 0);
+  const totalAssets = holdings.reduce((sum, h) => sum + (h.currentValue || h.totalCost), 0) + pendingBuyAmount;
 
   // 按分类统计
   const categoryStats = useMemo(() => {
     const stats: Record<string, { value: number; cost: number; count: number }> = {};
     
     holdings.forEach(holding => {
-      const fund = fundCache.find(f => f.code === holding.fundCode);
-      const category = fund?.category || '其他';
+      const category = '持仓';
       const value = holding.currentValue || holding.totalCost;
       
       if (!stats[category]) {
@@ -53,25 +61,14 @@ const Holdings: React.FC = () => {
       profit: data.value - data.cost,
       profitRate: data.cost > 0 ? (data.value - data.cost) / data.cost : 0,
     })).sort((a, b) => b.value - a.value);
-  }, [holdings, fundCache]);
+  }, [holdings]);
 
   // 按市场统计
   const marketStats = useMemo(() => {
-    const marketMap: Record<string, string> = {
-      'A股宽基': 'A股',
-      'A股行业': 'A股',
-      '港股': '港股',
-      '美股': '美股',
-      '商品': '商品',
-      '债券': '债券',
-    };
-
     const stats: Record<string, { value: number; cost: number; count: number }> = {};
     
     holdings.forEach(holding => {
-      const fund = fundCache.find(f => f.code === holding.fundCode);
-      const category = fund?.category || '其他';
-      const market = marketMap[category] || '其他';
+      const market = '全部';
       const value = holding.currentValue || holding.totalCost;
       
       if (!stats[market]) {
@@ -89,12 +86,12 @@ const Holdings: React.FC = () => {
       count: data.count,
       profit: data.value - data.cost,
       profitRate: data.cost > 0 ? (data.value - data.cost) / data.cost : 0,
-    })).sort((a, b) => b.value - b.value);
-  }, [holdings, fundCache]);
+    })).sort((a, b) => b.value - a.value);
+  }, [holdings]);
 
   const handleDeleteHolding = async (id: string) => {
     await Dialog.confirm({
-      content: '确定要删除这个持仓吗？',
+      content: '确定要删除这个持仓吗？关联的交易记录也会被删除。',
       onConfirm: async () => {
         try {
           await removeHolding(id);
@@ -279,7 +276,7 @@ const Holdings: React.FC = () => {
       <h1 className="page-title">持仓管理</h1>
 
       {/* 资产总览 */}
-      <TotalAssetsCard holdings={holdings} />
+      <TotalAssetsCard holdings={holdings} pendingBuyAmount={pendingBuyAmount} />
 
       {/* 标签页切换 */}
       <Tabs

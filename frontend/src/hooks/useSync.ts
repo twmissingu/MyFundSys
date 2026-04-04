@@ -1,22 +1,15 @@
 /**
- * 同步相关的 Hooks (简化版)
+ * 数据访问 Hooks
  * 
- * 使用 Supabase 作为数据源
+ * Supabase 为唯一数据源
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { db } from '../db';
-import { 
-  syncHoldingsToSupabase,
-  syncTransactionsToSupabase,
-  fetchAllDataFromSupabase,
-  checkSupabaseConnection,
-} from '../services/syncService';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import type { Fund, Holding, Transaction, Strategy } from '../types';
+import { removeTransactionWithHoldingUpdate, removeHoldingWithTransactions } from '../services/navUpdateService';
+import type { Holding, Transaction } from '../types';
 import type { Database } from '../types/database';
 
-// 类型别名
 type HoldingsInsert = Database['public']['Tables']['holdings']['Insert'];
 type TransactionsInsert = Database['public']['Tables']['transactions']['Insert'];
 
@@ -62,13 +55,9 @@ export function useSyncStatus() {
     setStatus(s => ({ ...s, isSyncing: true }));
     
     try {
-      // 从本地数据库获取数据并同步到 Supabase
-      const holdings = await db.holdings.toArray();
-      const transactions = await db.transactions.toArray();
-      
       await Promise.all([
-        syncHoldingsToSupabase(holdings),
-        syncTransactionsToSupabase(transactions),
+        supabase.from('holdings').select('*'),
+        supabase.from('transactions').select('*'),
       ]);
       
       setStatus(s => ({ 
@@ -91,6 +80,42 @@ export function useSyncStatus() {
 // 数据访问 Hooks
 // ============================================
 
+function mapHolding(h: any): Holding {
+  return {
+    id: h.id,
+    fundId: h.fund_code,
+    fundCode: h.fund_code,
+    fundName: h.fund_name,
+    shares: h.shares,
+    avgCost: h.avg_nav,
+    totalCost: h.total_cost,
+    currentNav: h.current_nav,
+    currentValue: h.market_value,
+    profit: h.profit,
+    profitRate: h.profit_rate,
+    createdAt: h.created_at,
+    updatedAt: h.updated_at,
+  };
+}
+
+function mapTransaction(t: any): Transaction {
+  return {
+    id: t.id,
+    fundId: t.fund_code,
+    fundCode: t.fund_code,
+    fundName: t.fund_name,
+    type: t.type,
+    date: t.date,
+    confirmDate: t.date,
+    amount: t.amount,
+    price: t.nav,
+    shares: t.shares,
+    fee: t.fee,
+    status: t.status,
+    createdAt: t.created_at,
+  };
+}
+
 export function useHoldings() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,31 +123,13 @@ export function useHoldings() {
   const loadHoldings = useCallback(async () => {
     try {
       if (isSupabaseConfigured()) {
-        // 从 Supabase 获取
         const { data, error } = await supabase.from('holdings').select('*');
         if (!error && data) {
-          setHoldings(data.map((h: any) => ({
-            id: h.id,
-            fundId: h.fund_code,
-            fundCode: h.fund_code,
-            fundName: h.fund_name,
-            shares: h.shares,
-            avgCost: h.avg_nav,
-            totalCost: h.total_cost,
-            currentNav: h.current_nav,
-            currentValue: h.market_value,
-            profit: h.profit,
-            profitRate: h.profit_rate,
-            createdAt: h.created_at,
-            updatedAt: h.updated_at,
-          })));
+          setHoldings(data.map(mapHolding));
           return;
         }
       }
-
-      // 降级：从本地数据库获取
-      const data = await db.holdings.toArray();
-      setHoldings(data);
+      setHoldings([]);
     } finally {
       setLoading(false);
     }
@@ -138,34 +145,19 @@ export function useHoldings() {
   }, [loadHoldings]);
 
   const saveHolding = useCallback(async (holding: Omit<Holding, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const id = await db.holdings.add({
-      ...holding,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } as Holding);
-    
-    // 同步到 Supabase
-    if (isSupabaseConfigured()) {
-      const payload: HoldingsInsert = {
-        fund_code: holding.fundCode,
-        fund_name: holding.fundName,
-        shares: holding.shares,
-        avg_nav: holding.avgCost,
-        total_cost: holding.totalCost,
-      };
-      await (supabase.from('holdings').insert as any)(payload);
-    }
-    
-    return id;
+    const payload: HoldingsInsert = {
+      fund_code: holding.fundCode,
+      fund_name: holding.fundName,
+      shares: holding.shares,
+      avg_nav: holding.avgCost,
+      total_cost: holding.totalCost,
+    };
+    const { data } = await (supabase.from('holdings').insert as any)(payload).select();
+    return data?.[0]?.id;
   }, []);
 
   const removeHolding = useCallback(async (id: string) => {
-    await db.holdings.delete(id);
-
-    if (isSupabaseConfigured()) {
-      await supabase.from('holdings').delete().eq('id', id);
-    }
+    await removeHoldingWithTransactions(id);
   }, []);
 
   return { holdings, loading, saveHolding, removeHolding, refresh };
@@ -178,31 +170,13 @@ export function useTransactions() {
   const loadTransactions = useCallback(async () => {
     try {
       if (isSupabaseConfigured()) {
-        // 从 Supabase 获取
         const { data, error } = await supabase.from('transactions').select('*');
         if (!error && data) {
-          setTransactions(data.map((t: any) => ({
-            id: t.id,
-            fundId: t.fund_code,
-            fundCode: t.fund_code,
-            fundName: t.fund_name,
-            type: t.type,
-            date: t.date,
-            confirmDate: t.date,
-            amount: t.amount,
-            price: t.nav,
-            shares: t.shares,
-            fee: t.fee,
-            status: t.status,
-            createdAt: t.created_at,
-          })));
+          setTransactions(data.map(mapTransaction));
           return;
         }
       }
-
-      // 降级：从本地数据库获取
-      const data = await db.transactions.toArray();
-      setTransactions(data);
+      setTransactions([]);
     } finally {
       setLoading(false);
     }
@@ -218,132 +192,26 @@ export function useTransactions() {
   }, [loadTransactions]);
 
   const saveTransaction = useCallback(async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const id = await db.transactions.add({
-      ...transaction,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    } as Transaction);
-    
-    // 同步到 Supabase
-    if (isSupabaseConfigured()) {
-      const payload: TransactionsInsert = {
-        fund_code: transaction.fundCode,
-        fund_name: transaction.fundName,
-        type: transaction.type,
-        shares: transaction.shares,
-        nav: transaction.price,
-        amount: transaction.amount,
-        fee: transaction.fee || 0,
-        date: transaction.date,
-        status: transaction.status || 'completed',
-      };
-      await supabase.from('transactions').insert(payload as any);
-    }
-
-    return id;
+    const payload: TransactionsInsert = {
+      fund_code: transaction.fundCode,
+      fund_name: transaction.fundName,
+      type: transaction.type,
+      shares: transaction.shares,
+      nav: transaction.price,
+      amount: transaction.amount,
+      fee: transaction.fee || 0,
+      date: transaction.date,
+      status: transaction.status || 'completed',
+    };
+    const { data } = await supabase.from('transactions').insert(payload as any).select();
+    return data?.[0]?.id;
   }, []);
 
   const removeTransaction = useCallback(async (id: string) => {
-    await db.transactions.delete(id);
-    
-    if (isSupabaseConfigured()) {
-      await supabase.from('transactions').delete().eq('id', id);
-    }
+    await removeTransactionWithHoldingUpdate(id);
   }, []);
 
   return { transactions, loading, saveTransaction, removeTransaction, refresh };
-}
-
-// ============================================
-// 工具函数
-// ============================================
-
-/**
- * 交易后更新持仓
- *
- * 核心算法：根据交易类型（买入/卖出）更新持仓的份额和成本
- * - 买入：增加份额，累加成本，重新计算均价
- * - 卖出：减少份额，按比例减少成本，重新计算均价
- *
- * @param holding - 现有持仓（undefined 表示新建持仓）
- * @param transaction - 交易记录，包含类型、份额、金额、价格
- * @returns 更新后的持仓对象
- *
- * @example
- * // 买入新基金，创建新持仓
- * const newHolding = updateLocalHoldingAfterTransaction(undefined, buyTx);
- *
- * // 追加买入，更新现有持仓
- * const updated = updateLocalHoldingAfterTransaction(existing, buyTx);
- *
- * // 卖出部分份额
- * const afterSell = updateLocalHoldingAfterTransaction(existing, sellTx);
- */
-export function updateLocalHoldingAfterTransaction(
-  holding: Holding | undefined,
-  transaction: Transaction
-): Holding {
-  if (!holding) {
-    // 新建持仓
-    return {
-      id: crypto.randomUUID(),
-      fundId: transaction.fundId,
-      fundCode: transaction.fundCode,
-      fundName: transaction.fundName,
-      shares: transaction.shares,
-      avgCost: transaction.price,
-      totalCost: transaction.amount,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  // 更新现有持仓
-  const newShares = transaction.type === 'buy'
-    ? holding.shares + transaction.shares
-    : holding.shares - transaction.shares;
-
-  const newTotalCost = transaction.type === 'buy'
-    ? holding.totalCost + transaction.amount
-    : holding.totalCost - transaction.amount;
-
-  return {
-    ...holding,
-    shares: newShares,
-    totalCost: newTotalCost,
-    avgCost: newShares > 0 ? newTotalCost / newShares : 0,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-// ============================================
-// 数据导入导出
-// ============================================
-
-export async function exportData(): Promise<string> {
-  const funds = await db.fundCache.toArray();
-  const holdings = await db.holdings.toArray();
-  const transactions = await db.transactions.toArray();
-  const strategies = await db.strategies.toArray();
-
-  return JSON.stringify({
-    funds,
-    holdings,
-    transactions,
-    strategies,
-    exportTime: new Date().toISOString(),
-  }, null, 2);
-}
-
-export async function importData(jsonData: string): Promise<void> {
-  const data = JSON.parse(jsonData);
-
-  await db.transaction('rw', [db.fundCache, db.holdings, db.transactions, db.strategies], async () => {
-    if (data.funds) await db.fundCache.bulkPut(data.funds);
-    if (data.holdings) await db.holdings.bulkPut(data.holdings);
-    if (data.transactions) await db.transactions.bulkPut(data.transactions);
-    if (data.strategies) await db.strategies.bulkPut(data.strategies);
-  });
 }
 
 // ============================================
@@ -357,9 +225,7 @@ export function useStrategies() {
   const loadStrategies = useCallback(async () => {
     setLoading(true);
     try {
-      // 从本地数据库获取策略
-      const data = await db.strategies?.toArray() || [];
-      setStrategies(data);
+      setStrategies([]);
     } finally {
       setLoading(false);
     }

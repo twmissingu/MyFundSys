@@ -59,6 +59,7 @@ serve(async (req: Request) => {
     const pageIndex = body.pageIndex ?? 1;
     const pageSize = body.pageSize ?? 20;
     const startDate = body.startDate ?? '';
+    const endDate = body.endDate ?? '';
 
     if (!code) {
       return new Response(
@@ -68,7 +69,7 @@ serve(async (req: Request) => {
     }
 
     // 调用东方财富历史净值 API
-    const historyUrl = `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${code}&pageIndex=${pageIndex}&pageSize=${pageSize}&startDate=${startDate}&endDate=&_=${Date.now()}`;
+    const historyUrl = `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${code}&pageIndex=${pageIndex}&pageSize=${pageSize}&startDate=${startDate}&endDate=${endDate}&_=${Date.now()}`;
 
     const response = await fetch(historyUrl, {
       headers: {

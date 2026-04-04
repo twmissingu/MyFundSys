@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, List, Button, Toast, Dialog, Tag, Switch, Input, Space } from 'antd-mobile';
 import { CheckCircleOutline, ClockCircleOutline, MessageOutline, SendOutline } from 'antd-mobile-icons';
-import { exportDatabase, importDatabase, initDefaultTasks } from '../db';
+import { exportDatabase, importDatabase, resetDatabase } from '../db';
 import { useSyncStatus, useHoldings, useTransactions } from '../hooks/useSync';
 import { getScheduledTasks, toggleTask, runTaskManually, PRESET_SCHEDULES } from '../services/schedulerService';
 import { getFeishuConfig, saveFeishuConfig, testWebhook } from '../services/feishuService';
@@ -29,7 +29,6 @@ const Settings: React.FC = () => {
 
   // 初始化
   useEffect(() => {
-    initDefaultTasks();
     loadTasks();
     loadFeishuConfig();
   }, []);
@@ -42,6 +41,23 @@ const Settings: React.FC = () => {
   const loadFeishuConfig = async () => {
     const config = await getFeishuConfig();
     setFeishuConfig(config || null);
+  };
+
+  // 重置数据
+  const handleReset = async () => {
+    Dialog.confirm({
+      title: '重置数据',
+      content: '确定要清空所有数据吗？此操作不可恢复。',
+      onConfirm: async () => {
+        try {
+          await resetDatabase();
+          Toast.show({ content: '数据已重置', position: 'bottom' });
+          window.location.reload();
+        } catch (error) {
+          Toast.show({ content: '重置失败', position: 'bottom' });
+        }
+      },
+    });
   };
 
   // 导出/导入
@@ -341,6 +357,17 @@ const Settings: React.FC = () => {
                 导入
               </Button>
             </label>
+          </List.Item>
+
+          <List.Item
+            title="重置数据"
+            description="清空所有数据并恢复初始状态"
+            onClick={handleReset}
+            arrow={false}
+          >
+            <Button size="mini" color="danger">
+              重置
+            </Button>
           </List.Item>
         </List>
       </Card>

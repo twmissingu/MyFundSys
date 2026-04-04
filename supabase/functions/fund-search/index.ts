@@ -64,8 +64,8 @@ serve(async (req: Request) => {
       );
     }
 
-    // 调用东方财富搜索 API
-    const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(keyword)}&type=14&count=100`;
+    // 调用东方财富搜索 API（使用 fundsuggest 接口，返回 BACKCODE 字段）
+    const searchUrl = `https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=9&key=${encodeURIComponent(keyword)}`;
 
     const response = await fetch(searchUrl, {
       headers: {
@@ -81,23 +81,22 @@ serve(async (req: Request) => {
 
     const result = await response.json();
 
-    if (!result.QuotationCodeTable || !result.QuotationCodeTable.Data) {
+    if (!result.Datas || result.Datas.length === 0) {
       return new Response(JSON.stringify([]), { headers: corsHeaders });
     }
 
-    // 过滤只保留基金
-    const funds: FundSearchResult[] = result.QuotationCodeTable.Data
-      .filter((item: any) => item.Code && item.Name)
-      .filter((item: any) => 
-        item.Classify === 'OTCFUND' || 
-        item.Classify === 'FUND' || 
-        item.Classify === 'Fund'
-      )
-      .map((item: any) => ({
-        code: item.Code,
-        name: item.Name,
-        type: item.Classes || item.Classify || '基金',
-      }));
+    // 过滤只保留基金，并处理后端收费基金
+    const funds: FundSearchResult[] = result.Datas
+      .filter((item: any) => item.CODE && item.NAME)
+      .map((item: any) => {
+        // 后端收费基金使用前端代码（BACKCODE），确保净值查询正常
+        const code = item.BACKCODE || item.FundBaseInfo?.FCODE || item.CODE;
+        return {
+          code,
+          name: item.NAME,
+          type: item.FundBaseInfo?.FTYPE || item.CATEGORYDESC || '基金',
+        };
+      });
 
     return new Response(JSON.stringify(funds), { headers: corsHeaders });
   } catch (error) {
