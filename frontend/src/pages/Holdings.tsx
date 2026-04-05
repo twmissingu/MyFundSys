@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Card, List, Toast, SwipeAction, Tabs, Dialog, Input, Button, Space } from 'antd-mobile';
+import { Card, List, Toast, SwipeAction, Tabs, Popup, Input, Button, Dialog } from 'antd-mobile';
+import { CloseOutline } from 'antd-mobile-icons';
 import { useHoldings, useTransactions } from '../hooks/useSync';
-import { deriveLots, deriveRealizedLots, type Lot, type RealizedLot } from '../services/navUpdateService';
+import { deriveLots, deriveRealizedLots, type Lot } from '../services/navUpdateService';
 import { fetchFundNav } from '../services/fundApi';
 import { formatMoney, formatPercent } from '../utils';
 import TotalAssetsCard from '../components/TotalAssetsCard';
@@ -144,6 +145,30 @@ const Holdings: React.FC = () => {
       ) : (
         <List>
           {lots.map(lot => {
+            // 在途买入
+            if (lot.isPending) {
+              return (
+                <div key={lot.id} style={{ padding: '12px 16px', marginBottom: 8, background: '#f5f5f5', borderRadius: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 500 }}>{lot.fundName || lot.fundCode}</div>
+                      <div style={{ fontSize: 13, color: '#999' }}>
+                        {lot.fundCode} | 在途买入 {lot.date}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 13, color: '#999' }}>
+                        金额: {formatMoney(lot.amount ?? 0)}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#999' }}>
+                        净值待定
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             const navInfo = lotNavMap.get(lot.fundCode);
             const currentNav = navInfo?.nav ?? lot.cost;
             const currentValue = currentNav * lot.remainingShares;
@@ -160,12 +185,6 @@ const Holdings: React.FC = () => {
                     text: '卖出',
                     color: 'warning',
                     onClick: () => handleSellClick(lot),
-                  },
-                  {
-                    key: 'delete',
-                    text: '删除',
-                    color: 'danger',
-                    onClick: () => handleDeleteHolding(lot.id),
                   },
                 ]}
               >
@@ -208,13 +227,13 @@ const Holdings: React.FC = () => {
     </Card>
   );
 
-  // 已实现盈亏
+  // 落袋为安
   const renderRealizedPnLView = () => (
     <>
       {/* 汇总卡片 */}
       {realizedLots.length > 0 && (
         <Card className="card" style={{ marginBottom: 12, background: '#f6ffed', border: '1px solid #b7eb8f' }}>
-          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>已实现盈亏汇总</div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>落袋为安汇总</div>
           <div style={{ fontSize: 20, fontWeight: 600, color: realizedPnL >= 0 ? '#ff4d4f' : '#52c41a' }}>
             {realizedPnL >= 0 ? '+' : ''}{formatMoney(realizedPnL)}
           </div>
@@ -224,10 +243,10 @@ const Holdings: React.FC = () => {
         </Card>
       )}
 
-      <Card title={`已实现盈亏 (${realizedLots.length})`} className="card">
+      <Card title={`落袋为安 (${realizedLots.length})`} className="card">
         {realizedLots.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            暂无已实现盈亏记录
+            暂无落袋为安记录
           </div>
         ) : (
           <List>
@@ -322,7 +341,7 @@ const Holdings: React.FC = () => {
         style={{ marginBottom: 12 }}
       >
         <Tabs.Tab title="持仓明细" key="lots" />
-        <Tabs.Tab title="已实现盈亏" key="realized" />
+        <Tabs.Tab title="落袋为安" key="realized" />
         <Tabs.Tab title="统计分析" key="stats" />
       </Tabs>
 
@@ -332,32 +351,25 @@ const Holdings: React.FC = () => {
       {activeTab === 'stats' && renderStatsView()}
 
       {/* 卖出弹窗 */}
-      {sellModal.lot && (
-        <Dialog
-          title={`卖出 - ${sellModal.lot.fundName || sellModal.lot.fundCode}`}
-          visible={true}
-          onClose={() => setSellModal({ lot: null, shares: '', loading: false })}
-          actions={[
-            [
-              {
-                key: 'cancel',
-                text: '取消',
-                onClick: () => setSellModal({ lot: null, shares: '', loading: false }),
-              },
-              {
-                key: 'confirm',
-                text: '确认卖出',
-                bold: true,
-                loading: sellModal.loading,
-                onClick: handleSellConfirm,
-              },
-            ],
-          ]}
-        >
-          <div style={{ padding: '16px 0' }}>
-            <div style={{ fontSize: 13, color: '#999', marginBottom: 8 }}>
+      <Popup
+        visible={!!sellModal.lot}
+        onMaskClick={() => setSellModal({ lot: null, shares: '', loading: false })}
+        position="bottom"
+        bodyStyle={{ borderTopLeftRadius: '16px', borderTopRightRadius: '16px', minHeight: '300px' }}
+      >
+        {sellModal.lot && (
+          <div style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>
+                卖出 - {sellModal.lot.fundName || sellModal.lot.fundCode}
+              </div>
+              <CloseOutline onClick={() => setSellModal({ lot: null, shares: '', loading: false })} style={{ fontSize: 20, color: '#999' }} />
+            </div>
+
+            <div style={{ fontSize: 13, color: '#999', marginBottom: 12 }}>
               可用份额: {sellModal.lot.remainingShares.toFixed(2)}
             </div>
+
             <Input
               type="number"
               placeholder="卖出份额"
@@ -365,23 +377,44 @@ const Holdings: React.FC = () => {
               onChange={(val) => setSellModal(prev => ({ ...prev, shares: val }))}
               style={{ height: 44, marginBottom: 12 }}
             />
+
             <Button
               size="small"
               color="primary"
               fill="outline"
               onClick={handleSellAll}
-              style={{ marginBottom: 8 }}
+              style={{ marginBottom: 16 }}
             >
               全部卖出
             </Button>
+
             {sellModal.shares && !isNaN(parseFloat(sellModal.shares)) && (
-              <div style={{ fontSize: 13, color: '#666' }}>
+              <div style={{ fontSize: 13, color: '#666', marginBottom: 20 }}>
                 预计金额: {formatMoney(parseFloat(sellModal.shares) * (lotNavMap.get(sellModal.lot!.fundCode)?.nav ?? sellModal.lot!.cost))}
               </div>
             )}
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <Button
+                block
+                onClick={() => setSellModal({ lot: null, shares: '', loading: false })}
+                style={{ flex: 1 }}
+              >
+                取消
+              </Button>
+              <Button
+                block
+                color="primary"
+                loading={sellModal.loading}
+                onClick={handleSellConfirm}
+                style={{ flex: 1 }}
+              >
+                确认卖出
+              </Button>
+            </div>
           </div>
-        </Dialog>
-      )}
+        )}
+      </Popup>
     </div>
   );
 };

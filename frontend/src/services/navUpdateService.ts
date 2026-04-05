@@ -20,6 +20,8 @@ export interface Lot {
   remainingShares: number; // 剩余份额
   cost: number;            // 买入时净值
   date: string;            // 买入日期
+  isPending: boolean;      // 是否在途（净值未确认）
+  amount?: number;         // 在途买入金额（仅 isPending=true 时有值）
 }
 
 export interface RealizedLot {
@@ -44,30 +46,31 @@ export interface RealizedLot {
 
 export function deriveLots(transactions: Transaction[]): Lot[] {
   const buyTxs = transactions
-    .filter(t => t.type === 'buy' && t.status === 'completed')
+    .filter(t => t.type === 'buy')
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const sellTxs = transactions
     .filter(t => t.type === 'sell' && t.status === 'completed')
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // 创建买入批次
+  // 创建买入批次（包含在途买入）
   const lots: Lot[] = buyTxs.map(tx => ({
     id: tx.id,
     fundCode: tx.fundCode,
     fundName: tx.fundName,
     shares: tx.shares,
-    remainingShares: tx.shares,
+    remainingShares: tx.status === 'completed' ? tx.shares : 0,
     cost: tx.price,
     date: tx.date,
+    isPending: tx.status === 'pending',
+    amount: tx.status === 'pending' ? tx.amount : undefined,
   }));
 
-  // 按成本升序匹配卖出（先卖成本最低的）
+  // 按成本升序匹配卖出（先卖成本最低的，跳过在途批次）
   for (const sell of sellTxs) {
     let remainingToSell = sell.shares;
-    // 同一基金内按成本升序
     const fundLots = lots
-      .filter(l => l.fundCode === sell.fundCode && l.remainingShares > 0)
+      .filter(l => l.fundCode === sell.fundCode && l.remainingShares > 0 && !l.isPending)
       .sort((a, b) => a.cost - b.cost);
 
     for (const lot of fundLots) {
@@ -78,8 +81,8 @@ export function deriveLots(transactions: Transaction[]): Lot[] {
     }
   }
 
-  // 只返回还有剩余份额的批次（持仓明细）
-  return lots.filter(l => l.remainingShares > 0);
+  // 返回所有批次（包含在途）
+  return lots.filter(l => l.remainingShares > 0 || l.isPending);
 }
 
 // ============================================
@@ -226,6 +229,78 @@ export function matchSellLots(
 }
 
 // ============================================
+// 删除交易验证：检查是否已被部分卖出
+// ============================================
+
+export interface DeleteCheckResult {
+  canDelete: boolean;
+  reason?: string;
+}
+
+/**
+ * 检查是否可以安全删除某笔交易
+ * 如果是买入交易，检查是否有卖出交易已经匹配了该批次
+ */
+export function canDeleteTransaction(
+  transactions: Transaction[],
+  transactionId: string
+): DeleteCheckResult {
+  const tx = transactions.find(t => t.id === transactionId);
+  if (!tx) return { canDelete: false, reason: '交易不存在' };
+
+  if (tx.type === 'sell') {
+    // 卖出交易：检查是否还有其他卖出依赖它
+    // 简化处理：卖出交易可以删除（会回滚到对应批次）
+    return { canDelete: true };
+  }
+
+  // 买入交易：检查是否有卖出交易匹配了该批次
+  const buyTxs = transactions
+    .filter(t => t.type === 'buy' && t.status === 'completed')
+    .sort((a, b) => a.price - b.price || a.date.localeCompare(b.date));
+
+  const sellTxs = transactions
+    .filter(t => t.type === 'sell' && t.status === 'completed')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // 模拟批次派生
+  const lots = buyTxs.map(b => ({
+    id: b.id,
+    fundCode: b.fundCode,
+    shares: b.shares,
+    remainingShares: b.shares,
+    cost: b.price,
+  }));
+
+  // 模拟卖出匹配
+  for (const sell of sellTxs) {
+    let remainingToSell = sell.shares;
+    const fundLots = lots
+      .filter(l => l.fundCode === sell.fundCode && l.remainingShares > 0)
+      .sort((a, b) => a.cost - b.cost);
+
+    for (const lot of fundLots) {
+      if (remainingToSell <= 0) break;
+      const sellFromLot = Math.min(lot.remainingShares, remainingToSell);
+      lot.remainingShares -= sellFromLot;
+      remainingToSell -= sellFromLot;
+    }
+  }
+
+  // 检查目标买入批次是否被卖出过
+  const targetLot = lots.find(l => l.id === transactionId);
+  if (targetLot && targetLot.remainingShares < targetLot.shares) {
+    const soldShares = targetLot.shares - targetLot.remainingShares;
+    return {
+      canDelete: false,
+      reason: `该笔买入已有 ${soldShares.toFixed(2)} 份被卖出，无法删除。请先在持仓明细中卖出剩余份额后再删除交易记录。`,
+    };
+  }
+
+  return { canDelete: true };
+}
+
+// ============================================
 // 持仓更新工具函数
 // ============================================
 
@@ -337,64 +412,10 @@ export async function addTransactionWithHoldingUpdate(
 
   await supabase.from('transactions').insert(txPayload as any);
 
-  if (transaction.status === 'completed') {
-    await updateHoldingOnSupabase(transaction.fundCode, transaction.fundName, transaction.type, transaction.shares, transaction.amount, transaction.price);
-  }
-
   return {
     transactionId,
     holdingUpdated: transaction.status === 'completed',
   };
-}
-
-async function updateHoldingOnSupabase(
-  fundCode: string,
-  fundName: string,
-  type: string,
-  shares: number,
-  amount: number,
-  price: number
-): Promise<void> {
-  const { data: existing } = await supabase
-    .from('holdings')
-    .select('*')
-    .eq('fund_code', fundCode)
-    .limit(1)
-    .maybeSingle();
-
-  if (type === 'buy') {
-    if (!existing) {
-      await supabase.from('holdings').insert({
-        fund_code: fundCode,
-        fund_name: fundName || '',
-        shares,
-        avg_nav: price,
-        total_cost: amount,
-      } as any);
-    } else {
-      const newShares = existing.shares + shares;
-      const newTotalCost = existing.total_cost + amount;
-      await supabase.from('holdings').update({
-        shares: newShares,
-        avg_nav: newTotalCost / newShares,
-        total_cost: newTotalCost,
-      }).eq('fund_code', fundCode);
-    }
-  } else {
-    if (existing) {
-      const newShares = existing.shares - shares;
-      const newTotalCost = existing.total_cost - amount;
-      if (newShares <= 0) {
-        await supabase.from('holdings').delete().eq('fund_code', fundCode);
-      } else {
-        await supabase.from('holdings').update({
-          shares: newShares,
-          avg_nav: newTotalCost / newShares,
-          total_cost: newTotalCost,
-        }).eq('fund_code', fundCode);
-      }
-    }
-  }
 }
 
 export async function removeTransactionWithHoldingUpdate(
@@ -412,44 +433,6 @@ export async function removeTransactionWithHoldingUpdate(
   if (!transaction) return;
 
   await supabase.from('transactions').delete().eq('id', transactionId);
-
-  if (transaction.status === 'completed') {
-    await reverseTransactionOnSupabase(transaction.fund_code, transaction.type, transaction.shares, transaction.amount);
-  }
-}
-
-async function reverseTransactionOnSupabase(
-  fundCode: string,
-  type: string,
-  shares: number,
-  amount: number
-): Promise<void> {
-  const { data: existing } = await supabase
-    .from('holdings')
-    .select('*')
-    .eq('fund_code', fundCode)
-    .limit(1)
-    .maybeSingle();
-
-  if (!existing) return;
-
-  const newShares = type === 'buy'
-    ? existing.shares - shares
-    : existing.shares + shares;
-
-  const newTotalCost = type === 'buy'
-    ? existing.total_cost - amount
-    : existing.total_cost + amount;
-
-  if (newShares <= 0) {
-    await supabase.from('holdings').delete().eq('fund_code', fundCode);
-  } else {
-    await supabase.from('holdings').update({
-      shares: newShares,
-      avg_nav: newTotalCost / newShares,
-      total_cost: newTotalCost,
-    }).eq('fund_code', fundCode);
-  }
 }
 
 export async function removeHoldingWithTransactions(holdingId: string): Promise<void> {
@@ -560,8 +543,6 @@ export async function processPendingTransactions(): Promise<ProcessPendingResult
         amount,
         status: 'completed',
       }).eq('id', transaction.id);
-
-      await updateHoldingOnSupabase(transaction.fund_code, transaction.fund_name, transaction.type, shares, amount, tradePrice);
 
       processedCount++;
       console.log(`[Pending] 处理完成: ${transaction.fund_code}, 确认日: ${confirmDate}, 净值: ${tradePrice}`);

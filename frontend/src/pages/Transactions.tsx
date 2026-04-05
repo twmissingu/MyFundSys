@@ -3,7 +3,7 @@ import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input,
 import { AddOutline } from 'antd-mobile-icons';
 
 import { useTransactions, useHoldings } from '../hooks/useSync';
-import { addTransactionWithHoldingUpdate, processPendingTransactions } from '../services/navUpdateService';
+import { addTransactionWithHoldingUpdate, processPendingTransactions, canDeleteTransaction } from '../services/navUpdateService';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { searchByCode, fetchFundNav, fetchFundHistory } from '../services/fundApi';
 import type { FundSearchResult } from '../types';
@@ -271,6 +271,13 @@ const Transactions: React.FC = () => {
   const pendingCount = transactions.filter(t => t.status === 'pending').length;
 
   const handleDelete = async (id: string) => {
+    // 验证是否可以删除
+    const checkResult = canDeleteTransaction(transactions, id);
+    if (!checkResult.canDelete) {
+      Toast.show({ content: checkResult.reason || '无法删除', position: 'bottom', duration: 5000 });
+      return;
+    }
+
     await Dialog.confirm({
       content: '确定要删除这条交易记录吗？',
       onConfirm: async () => {
@@ -849,7 +856,10 @@ const Transactions: React.FC = () => {
                 <Form.Item
                   name="amount"
                   label="交易金额（元）"
-                  rules={[{ required: true, message: '请输入交易金额' }]}
+                  rules={[
+                    { required: true, message: '请输入交易金额' },
+                    { validator: (_, value) => parseFloat(value || '0') > 0 ? Promise.resolve() : Promise.reject(new Error('交易金额必须大于0')) },
+                  ]}
                   help={isPendingNav
                     ? '在途交易，净值待定'
                     : isDateNavLoading 
@@ -888,7 +898,10 @@ const Transactions: React.FC = () => {
                 <Form.Item
                   name="shares"
                   label="交易份额"
-                  rules={[{ required: true, message: '请输入交易份额' }]}
+                  rules={[
+                    { required: true, message: '请输入交易份额' },
+                    { validator: (_, value) => parseFloat(value || '0') > 0 ? Promise.resolve() : Promise.reject(new Error('交易份额必须大于0')) },
+                  ]}
                   help={isPendingNav
                     ? '在途交易，净值待定'
                     : isDateNavLoading 
