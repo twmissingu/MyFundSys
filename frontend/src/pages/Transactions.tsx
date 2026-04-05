@@ -314,7 +314,8 @@ const Transactions: React.FC = () => {
           .from('favorite_funds')
           .select('id')
           .eq('fund_code', selectedFund.code)
-          .single();
+          .limit(1)
+          .maybeSingle();
         if (!existing) {
           await supabase.from('favorite_funds').insert({
             fund_code: selectedFund.code,
@@ -818,6 +819,31 @@ const Transactions: React.FC = () => {
               }} />
             </Form.Item>
 
+            {/* 净值预览卡片 */}
+            {(selectedDateNav || isPendingNav || isDateNavLoading) && (
+              <div
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  marginBottom: 16,
+                  background: isPendingNav ? '#f5f5f5' : `${selectedDateNav ? '#52c41a' : '#faad14'}10`,
+                  border: `1px solid ${isPendingNav ? '#d9d9d9' : selectedDateNav ? '#52c41a' : '#faad14'}`,
+                }}
+              >
+                {isDateNavLoading ? (
+                  <span style={{ fontSize: 13, color: '#999' }}>正在获取净值...</span>
+                ) : isPendingNav ? (
+                  <span style={{ fontSize: 13, color: '#999' }}>在途交易，净值待定</span>
+                ) : selectedDateNav ? (
+                  <div style={{ fontSize: 14 }}>
+                    <span style={{ color: '#666' }}>净值: </span>
+                    <span style={{ fontWeight: 600, color: '#333' }}>{selectedDateNav.nav.toFixed(4)}</span>
+                    <span style={{ color: '#999', marginLeft: 8 }}>({selectedDateNav.date})</span>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             {currentTradeType === 'buy' ? (
               <>
                 <Form.Item
@@ -826,13 +852,13 @@ const Transactions: React.FC = () => {
                   rules={[{ required: true, message: '请输入交易金额' }]}
                   help={isPendingNav
                     ? '在途交易，净值待定'
-                    : selectedDateNav 
-                      ? `净值: ${selectedDateNav.nav.toFixed(4)} (${selectedDateNav.date})` 
-                      : isDateNavLoading 
-                        ? '正在获取净值...' 
+                    : isDateNavLoading 
+                      ? '正在获取净值...' 
+                      : selectedDateNav 
+                        ? `使用净值: ${selectedDateNav.nav.toFixed(4)}` 
                         : currentNav 
-                          ? `当前净值: ${currentNav.toFixed(4)}（选择日期后将使用对应净值）` 
-                          : '在途交易，净值待定'}
+                          ? `使用当前净值: ${currentNav.toFixed(4)}` 
+                          : ''}
                 >
                   <Input
                     type="number"
@@ -865,13 +891,13 @@ const Transactions: React.FC = () => {
                   rules={[{ required: true, message: '请输入交易份额' }]}
                   help={isPendingNav
                     ? '在途交易，净值待定'
-                    : selectedDateNav 
-                      ? `净值: ${selectedDateNav.nav.toFixed(4)} (${selectedDateNav.date})` 
-                      : isDateNavLoading 
-                        ? '正在获取净值...' 
+                    : isDateNavLoading 
+                      ? '正在获取净值...' 
+                      : selectedDateNav 
+                        ? `使用净值: ${selectedDateNav.nav.toFixed(4)}` 
                         : currentNav 
-                          ? `当前净值: ${currentNav.toFixed(4)}` 
-                          : '在途交易，净值待定'}
+                          ? `使用当前净值: ${currentNav.toFixed(4)}` 
+                          : ''}
                 >
                   <Input
                     type="number"

@@ -9,6 +9,223 @@ import { fetchFundNav } from './fundApi';
 import type { Holding, Transaction } from '../types';
 
 // ============================================
+// 批次（Lot）类型定义
+// ============================================
+
+export interface Lot {
+  id: string;              // 原始买入交易ID
+  fundCode: string;
+  fundName: string;
+  shares: number;          // 原始买入份额
+  remainingShares: number; // 剩余份额
+  cost: number;            // 买入时净值
+  date: string;            // 买入日期
+}
+
+export interface RealizedLot {
+  id: string;              // 原始买入交易ID
+  fundCode: string;
+  fundName: string;
+  buyDate: string;
+  sellDate: string;
+  shares: number;
+  buyNav: number;
+  sellNav: number;
+  cost: number;            // 买入成本 = shares × buyNav
+  revenue: number;         // 卖出收入 = shares × sellNav
+  profit: number;
+  profitRate: number;
+  holdingDays: number;
+}
+
+// ============================================
+// 批次派生：从交易记录派生当前持仓批次
+// ============================================
+
+export function deriveLots(transactions: Transaction[]): Lot[] {
+  const buyTxs = transactions
+    .filter(t => t.type === 'buy' && t.status === 'completed')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const sellTxs = transactions
+    .filter(t => t.type === 'sell' && t.status === 'completed')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // 创建买入批次
+  const lots: Lot[] = buyTxs.map(tx => ({
+    id: tx.id,
+    fundCode: tx.fundCode,
+    fundName: tx.fundName,
+    shares: tx.shares,
+    remainingShares: tx.shares,
+    cost: tx.price,
+    date: tx.date,
+  }));
+
+  // 按成本升序匹配卖出（先卖成本最低的）
+  for (const sell of sellTxs) {
+    let remainingToSell = sell.shares;
+    // 同一基金内按成本升序
+    const fundLots = lots
+      .filter(l => l.fundCode === sell.fundCode && l.remainingShares > 0)
+      .sort((a, b) => a.cost - b.cost);
+
+    for (const lot of fundLots) {
+      if (remainingToSell <= 0) break;
+      const sellFromLot = Math.min(lot.remainingShares, remainingToSell);
+      lot.remainingShares -= sellFromLot;
+      remainingToSell -= sellFromLot;
+    }
+  }
+
+  // 只返回还有剩余份额的批次（持仓明细）
+  return lots.filter(l => l.remainingShares > 0);
+}
+
+// ============================================
+// 已实现盈亏派生：从交易记录派生已卖出批次
+// ============================================
+
+export function deriveRealizedLots(transactions: Transaction[]): RealizedLot[] {
+  const buyTxs = transactions
+    .filter(t => t.type === 'buy' && t.status === 'completed')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const sellTxs = transactions
+    .filter(t => t.type === 'sell' && t.status === 'completed')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const lots: Lot[] = buyTxs.map(tx => ({
+    id: tx.id,
+    fundCode: tx.fundCode,
+    fundName: tx.fundName,
+    shares: tx.shares,
+    remainingShares: tx.shares,
+    cost: tx.price,
+    date: tx.date,
+  }));
+
+  const realizedLots: RealizedLot[] = [];
+
+  for (const sell of sellTxs) {
+    let remainingToSell = sell.shares;
+    const fundLots = lots
+      .filter(l => l.fundCode === sell.fundCode && l.remainingShares > 0)
+      .sort((a, b) => a.cost - b.cost);
+
+    for (const lot of fundLots) {
+      if (remainingToSell <= 0) break;
+      const sellFromLot = Math.min(lot.remainingShares, remainingToSell);
+      lot.remainingShares -= sellFromLot;
+
+      // 如果该批次全部卖出，记录已实现盈亏
+      if (lot.remainingShares === 0) {
+        const sellDate = new Date(sell.date);
+        const buyDate = new Date(lot.date);
+        const holdingDays = Math.max(0, Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24)));
+        const cost = sellFromLot * lot.cost;
+        const revenue = sellFromLot * sell.price;
+        const profit = revenue - cost;
+        const profitRate = cost > 0 ? profit / cost : 0;
+
+        realizedLots.push({
+          id: lot.id,
+          fundCode: lot.fundCode,
+          fundName: lot.fundName,
+          buyDate: lot.date,
+          sellDate: sell.date,
+          shares: sellFromLot,
+          buyNav: lot.cost,
+          sellNav: sell.price,
+          cost,
+          revenue,
+          profit,
+          profitRate,
+          holdingDays,
+        });
+      }
+    }
+  }
+
+  // 按卖出日期倒序
+  return realizedLots.sort((a, b) => b.sellDate.localeCompare(a.sellDate));
+}
+
+// ============================================
+// 持仓汇总：从批次派生基金级汇总
+// ============================================
+
+export interface HoldingSummary {
+  fundCode: string;
+  fundName: string;
+  shares: number;
+  totalCost: number;
+  avgCost: number;
+  currentNav?: number;
+  currentValue?: number;
+  profit?: number;
+  profitRate?: number;
+}
+
+export function summarizeHoldings(lots: Lot[]): HoldingSummary[] {
+  const byFund: Record<string, HoldingSummary> = {};
+
+  for (const lot of lots) {
+    if (!byFund[lot.fundCode]) {
+      byFund[lot.fundCode] = {
+        fundCode: lot.fundCode,
+        fundName: lot.fundName,
+        shares: 0,
+        totalCost: 0,
+        avgCost: 0,
+      };
+    }
+    const summary = byFund[lot.fundCode];
+    summary.shares += lot.remainingShares;
+    summary.totalCost += lot.remainingShares * lot.cost;
+  }
+
+  // 计算平均成本
+  for (const summary of Object.values(byFund)) {
+    summary.avgCost = summary.shares > 0 ? summary.totalCost / summary.shares : 0;
+  }
+
+  return Object.values(byFund);
+}
+
+// ============================================
+// 卖出匹配：按成本最低批次匹配
+// ============================================
+
+export interface SellMatchResult {
+  lotsUsed: { lotId: string; shares: number; cost: number }[];
+  remainingShares: number;
+}
+
+export function matchSellLots(
+  lots: Lot[],
+  fundCode: string,
+  sellShares: number
+): SellMatchResult {
+  const fundLots = lots
+    .filter(l => l.fundCode === fundCode && l.remainingShares > 0)
+    .sort((a, b) => a.cost - b.cost);
+
+  let remainingToSell = sellShares;
+  const lotsUsed: SellMatchResult['lotsUsed'] = [];
+
+  for (const lot of fundLots) {
+    if (remainingToSell <= 0) break;
+    const sellFromLot = Math.min(lot.remainingShares, remainingToSell);
+    lotsUsed.push({ lotId: lot.id, shares: sellFromLot, cost: lot.cost });
+    lot.remainingShares -= sellFromLot;
+    remainingToSell -= sellFromLot;
+  }
+
+  return { lotsUsed, remainingShares: remainingToSell };
+}
+
+// ============================================
 // 持仓更新工具函数
 // ============================================
 
@@ -121,7 +338,7 @@ export async function addTransactionWithHoldingUpdate(
   await supabase.from('transactions').insert(txPayload as any);
 
   if (transaction.status === 'completed') {
-    await updateHoldingOnSupabase(transaction.fundCode, transaction.type, transaction.shares, transaction.amount, transaction.price);
+    await updateHoldingOnSupabase(transaction.fundCode, transaction.fundName, transaction.type, transaction.shares, transaction.amount, transaction.price);
   }
 
   return {
@@ -132,6 +349,7 @@ export async function addTransactionWithHoldingUpdate(
 
 async function updateHoldingOnSupabase(
   fundCode: string,
+  fundName: string,
   type: string,
   shares: number,
   amount: number,
@@ -141,13 +359,14 @@ async function updateHoldingOnSupabase(
     .from('holdings')
     .select('*')
     .eq('fund_code', fundCode)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (type === 'buy') {
     if (!existing) {
       await supabase.from('holdings').insert({
         fund_code: fundCode,
-        fund_name: '',
+        fund_name: fundName || '',
         shares,
         avg_nav: price,
         total_cost: amount,
@@ -187,7 +406,8 @@ export async function removeTransactionWithHoldingUpdate(
     .from('transactions')
     .select('*')
     .eq('id', transactionId)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (!transaction) return;
 
@@ -208,7 +428,8 @@ async function reverseTransactionOnSupabase(
     .from('holdings')
     .select('*')
     .eq('fund_code', fundCode)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (!existing) return;
 
@@ -238,7 +459,8 @@ export async function removeHoldingWithTransactions(holdingId: string): Promise<
     .from('holdings')
     .select('fund_code')
     .eq('id', holdingId)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (!holding) return;
 
@@ -339,7 +561,7 @@ export async function processPendingTransactions(): Promise<ProcessPendingResult
         status: 'completed',
       }).eq('id', transaction.id);
 
-      await updateHoldingOnSupabase(transaction.fund_code, transaction.type, shares, amount, tradePrice);
+      await updateHoldingOnSupabase(transaction.fund_code, transaction.fund_name, transaction.type, shares, amount, tradePrice);
 
       processedCount++;
       console.log(`[Pending] 处理完成: ${transaction.fund_code}, 确认日: ${confirmDate}, 净值: ${tradePrice}`);

@@ -99,8 +99,9 @@ const FundList: React.FC = () => {
 
   return (
     <div className="page-container">
+      <h1 className="page-title">基金搜索</h1>
+
       <div style={{ padding: '16px' }}>
-        <h1 style={{ fontSize: 20, marginBottom: 16 }}>基金搜索</h1>
         
         {/* 按代码搜索 */}
         <Card style={{ marginBottom: 12 }}>

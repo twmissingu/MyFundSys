@@ -1,93 +1,30 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Card, List, Toast, SwipeAction, Tabs, Tag, Dialog } from 'antd-mobile';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-
+import React, { useState, useEffect } from 'react';
+import { Card, List, Toast, SwipeAction, Tabs, Dialog, Input, Button, Space } from 'antd-mobile';
 import { useHoldings, useTransactions } from '../hooks/useSync';
-import { processPendingTransactions } from '../services/navUpdateService';
+import { deriveLots, deriveRealizedLots, type Lot, type RealizedLot } from '../services/navUpdateService';
+import { fetchFundNav } from '../services/fundApi';
 import { formatMoney, formatPercent } from '../utils';
 import TotalAssetsCard from '../components/TotalAssetsCard';
 import './Layout.css';
 
-const COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fadb14'];
-
 const Holdings: React.FC = () => {
-  const { holdings, loading, removeHolding, refresh } = useHoldings();
-  const { transactions } = useTransactions();
-  const [activeTab, setActiveTab] = useState('list');
+  const { holdings, lots, loading, removeHolding, refresh } = useHoldings();
+  const { transactions, saveTransaction, refresh: refreshTransactions } = useTransactions();
+  const [activeTab, setActiveTab] = useState('lots');
 
-
-  // 加载在途交易
-  useEffect(() => {
-    processPendingTransactions().then((result) => {
-      if (result.processedCount > 0) {
-        Toast.show({
-          content: `已处理 ${result.processedCount} 笔在途交易`,
-          position: 'bottom'
-        });
-        refresh();
-      }
-    });
-  }, []);
-
-  // 计算在途买入金额
+  // 在途买入金额
   const pendingBuyAmount = transactions
     .filter(t => t.status === 'pending' && t.type === 'buy')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  // 计算总资产（用于统计图表）
-  const totalAssets = holdings.reduce((sum, h) => sum + (h.currentValue || h.totalCost), 0) + pendingBuyAmount;
+  // 已实现盈亏
+  const realizedLots = deriveRealizedLots(transactions);
+  const realizedPnL = realizedLots.reduce((sum, lot) => sum + lot.profit, 0);
 
-  // 按分类统计
-  const categoryStats = useMemo(() => {
-    const stats: Record<string, { value: number; cost: number; count: number }> = {};
-    
-    holdings.forEach(holding => {
-      const category = '持仓';
-      const value = holding.currentValue || holding.totalCost;
-      
-      if (!stats[category]) {
-        stats[category] = { value: 0, cost: 0, count: 0 };
-      }
-      stats[category].value += value;
-      stats[category].cost += holding.totalCost;
-      stats[category].count += 1;
-    });
-
-    return Object.entries(stats).map(([name, data]) => ({
-      name,
-      value: data.value,
-      cost: data.cost,
-      count: data.count,
-      profit: data.value - data.cost,
-      profitRate: data.cost > 0 ? (data.value - data.cost) / data.cost : 0,
-    })).sort((a, b) => b.value - a.value);
-  }, [holdings]);
-
-  // 按市场统计
-  const marketStats = useMemo(() => {
-    const stats: Record<string, { value: number; cost: number; count: number }> = {};
-    
-    holdings.forEach(holding => {
-      const market = '全部';
-      const value = holding.currentValue || holding.totalCost;
-      
-      if (!stats[market]) {
-        stats[market] = { value: 0, cost: 0, count: 0 };
-      }
-      stats[market].value += value;
-      stats[market].cost += holding.totalCost;
-      stats[market].count += 1;
-    });
-
-    return Object.entries(stats).map(([name, data]) => ({
-      name,
-      value: data.value,
-      cost: data.cost,
-      count: data.count,
-      profit: data.value - data.cost,
-      profitRate: data.cost > 0 ? (data.value - data.cost) / data.cost : 0,
-    })).sort((a, b) => b.value - a.value);
-  }, [holdings]);
+  // 加载在途交易
+  useEffect(() => {
+    refresh();
+  }, []);
 
   const handleDeleteHolding = async (id: string) => {
     await Dialog.confirm({
@@ -95,78 +32,170 @@ const Holdings: React.FC = () => {
       onConfirm: async () => {
         try {
           await removeHolding(id);
-            Toast.show({ content: '删除成功', position: 'bottom' });
-            window.location.reload();
-        } catch (error) {
+          Toast.show({ content: '删除成功', position: 'bottom' });
+          window.location.reload();
+        } catch {
           Toast.show({ content: '删除失败', position: 'bottom' });
         }
       },
     });
   };
 
-  const getCategoryColor = (category: string) => {
-    const colors: Record<string, string> = {
-      'A股宽基': '#1677ff',
-      'A股行业': '#52c41a',
-      '港股': '#fa8c16',
-      '美股': '#f5222d',
-      '商品': '#722ed1',
-      '债券': '#13c2c2',
-    };
-    return colors[category] || '#999';
+  // 卖出弹窗状态
+  const [sellModal, setSellModal] = useState<{
+    lot: Lot | null;
+    shares: string;
+    loading: boolean;
+  }>({ lot: null, shares: '', loading: false });
+
+  const handleSellClick = (lot: Lot) => {
+    setSellModal({ lot, shares: lot.remainingShares.toFixed(2), loading: false });
   };
 
-  const renderListView = () => (
-    <Card title={`持仓明细 (${holdings.length})`} className="card">
-      {holdings.length === 0 ? (
+  const handleSellAll = () => {
+    if (sellModal.lot) {
+      setSellModal(prev => ({ ...prev, shares: prev.lot!.remainingShares.toFixed(2) }));
+    }
+  };
+
+  const handleSellConfirm = async () => {
+    if (!sellModal.lot) return;
+    const sellShares = parseFloat(sellModal.shares);
+    if (isNaN(sellShares) || sellShares <= 0) {
+      Toast.show({ content: '请输入有效的份额', position: 'bottom' });
+      return;
+    }
+    if (sellShares > sellModal.lot.remainingShares) {
+      Toast.show({ content: '卖出份额不能超过可用份额', position: 'bottom' });
+      return;
+    }
+
+    setSellModal(prev => ({ ...prev, loading: true }));
+    try {
+      // 获取最新净值
+      const navData = await fetchFundNav(sellModal.lot!.fundCode);
+      const price = navData?.nav || sellModal.lot!.cost;
+      const amount = sellShares * price;
+
+      // 创建卖出交易
+      await saveTransaction({
+        fundId: sellModal.lot!.fundCode,
+        fundCode: sellModal.lot!.fundCode,
+        fundName: sellModal.lot!.fundName,
+        type: 'sell',
+        date: new Date().toISOString().split('T')[0],
+        amount,
+        price,
+        shares: sellShares,
+        fee: 0,
+        status: 'completed',
+      });
+
+      setSellModal({ lot: null, shares: '', loading: false });
+      Toast.show({ content: '卖出成功', position: 'bottom' });
+      await refresh();
+      await refreshTransactions();
+    } catch {
+      Toast.show({ content: '卖出失败', position: 'bottom' });
+    } finally {
+      setSellModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  // 批量获取批次净值
+  const [lotNavMap, setLotNavMap] = useState<Map<string, { nav: number; navDate: string }>>(new Map());
+
+  useEffect(() => {
+    if (lots.length === 0) return;
+    const fetchNavs = async () => {
+      const fundCodes = [...new Set(lots.map(l => l.fundCode))];
+      const map = new Map<string, { nav: number; navDate: string }>();
+      const batchSize = 5;
+      for (let i = 0; i < fundCodes.length; i += batchSize) {
+        const batch = fundCodes.slice(i, i + batchSize);
+        const results = await Promise.all(
+          batch.map(async (code) => {
+            try {
+              const navData = await fetchFundNav(code);
+              if (navData && navData.nav > 0) {
+                return { code, nav: navData.nav, navDate: navData.navDate };
+              }
+            } catch { /* ignore */ }
+            return null;
+          })
+        );
+        results.forEach(r => { if (r) map.set(r.code, { nav: r.nav, navDate: r.navDate }); });
+        if (i + batchSize < fundCodes.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      setLotNavMap(map);
+    };
+    fetchNavs();
+  }, [lots]);
+
+  // 持仓明细 - 按批次展示
+  const renderLotsView = () => (
+    <Card title={`持仓明细 (${lots.length})`} className="card">
+      {lots.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
           暂无持仓，请在交易页面添加交易记录
         </div>
       ) : (
         <List>
-          {holdings.map(holding => {
-            const profit = (holding.currentValue || holding.totalCost) - holding.totalCost;
-            const profitRate = holding.totalCost > 0 ? profit / holding.totalCost : 0;
-            
+          {lots.map(lot => {
+            const navInfo = lotNavMap.get(lot.fundCode);
+            const currentNav = navInfo?.nav ?? lot.cost;
+            const currentValue = currentNav * lot.remainingShares;
+            const cost = lot.cost * lot.remainingShares;
+            const profit = currentValue - cost;
+            const profitRate = cost > 0 ? profit / cost : 0;
+
             return (
               <SwipeAction
-                key={holding.id}
+                key={lot.id}
                 rightActions={[
+                  {
+                    key: 'sell',
+                    text: '卖出',
+                    color: 'warning',
+                    onClick: () => handleSellClick(lot),
+                  },
                   {
                     key: 'delete',
                     text: '删除',
                     color: 'danger',
-                    onClick: () => handleDeleteHolding(holding.id),
+                    onClick: () => handleDeleteHolding(lot.id),
                   },
                 ]}
               >
-                <div onClick={() => window.location.hash = `#transactions?fundCode=${holding.fundCode}`}>
+                <div onClick={() => window.location.hash = `#transactions?fundCode=${lot.fundCode}`}>
                   <List.Item
-                    title={<div style={{ fontSize: 15, fontWeight: 500 }}>{holding.fundName}</div>}
+                    title={<div style={{ fontSize: 15, fontWeight: 500 }}>{lot.fundName || lot.fundCode}</div>}
                     description={
                       <div style={{ fontSize: 13, color: '#999' }}>
-                        {holding.fundCode} | 成本: {formatMoney(holding.avgCost)}
+                        {lot.fundCode} | 买入 {lot.date}
                       </div>
                     }
                     extra={
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: 15, fontWeight: 500 }}>
-                          {formatMoney(holding.currentValue || holding.totalCost)}
+                          {formatMoney(currentValue)}
                         </div>
-                        <div 
-                          style={{ 
-                            fontSize: 13, 
-                            color: profit >= 0 ? '#ff4d4f' : '#52c41a' 
+                        <div
+                          style={{
+                            fontSize: 13,
+                            color: profit >= 0 ? '#ff4d4f' : '#52c41a'
                           }}
                         >
-                          {profit >= 0 ? '+' : ''}{formatPercent(profitRate)}
+                          {profit >= 0 ? '+' : ''}{formatMoney(profit)} ({formatPercent(profitRate)})
                         </div>
                       </div>
                     }
                   >
                     <div style={{ padding: '8px 0' }}>
                       <div style={{ fontSize: 13, color: '#666' }}>
-                        份额: {holding.shares.toFixed(2)} | 市值: {formatMoney(holding.currentValue || holding.totalCost)}
+                        份额: {lot.remainingShares.toFixed(2)} | 成本: {lot.cost.toFixed(4)}
                       </div>
                     </div>
                   </List.Item>
@@ -179,104 +208,112 @@ const Holdings: React.FC = () => {
     </Card>
   );
 
-  const renderStatsView = () => (
+  // 已实现盈亏
+  const renderRealizedPnLView = () => (
     <>
-      {/* 资产配置饼图 */}
-      <Card title="资产配置" className="card" style={{ marginBottom: 12 }}>
-        {categoryStats.length > 0 ? (
-          <>
-            <div style={{ height: 200 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryStats}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={70}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    {categoryStats.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip formatter={(value: number) => formatMoney(value)} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <List>
-              {categoryStats.map((stat, index) => (
-                <List.Item
-                  key={stat.name}
-                  title={<div style={{ display: 'flex', alignItems: 'center' }}>
-                    <div 
-                      style={{ 
-                        width: 12, 
-                        height: 12, 
-                        borderRadius: '50%', 
-                        backgroundColor: COLORS[index % COLORS.length],
-                        marginRight: 8 
-                      }} 
-                    />
-                    {stat.name}
-                  </div>}
-                  description={`${stat.count}只基金`}
-                  extra={<div style={{ textAlign: 'right' }}>
-                    <div>{formatMoney(stat.value)}</div>
-                    <div style={{ fontSize: 12, color: '#999' }}>
-                      {((stat.value / totalAssets) * 100).toFixed(1)}%
-                    </div>
-                  </div>}
-                />
-              ))}
-            </List>
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            暂无持仓数据
+      {/* 汇总卡片 */}
+      {realizedLots.length > 0 && (
+        <Card className="card" style={{ marginBottom: 12, background: '#f6ffed', border: '1px solid #b7eb8f' }}>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>已实现盈亏汇总</div>
+          <div style={{ fontSize: 20, fontWeight: 600, color: realizedPnL >= 0 ? '#ff4d4f' : '#52c41a' }}>
+            {realizedPnL >= 0 ? '+' : ''}{formatMoney(realizedPnL)}
           </div>
-        )}
-      </Card>
+          <div style={{ fontSize: 13, color: '#999', marginTop: 4 }}>
+            盈利 {realizedLots.filter(l => l.profit > 0).length} 笔 | 亏损 {realizedLots.filter(l => l.profit <= 0).length} 笔 | 胜率 {realizedLots.length > 0 ? ((realizedLots.filter(l => l.profit > 0).length / realizedLots.length) * 100).toFixed(1) : 0}%
+          </div>
+        </Card>
+      )}
 
-      {/* 市场分布 */}
-      <Card title="市场分布" className="card">
-        {marketStats.length > 0 ? (
+      <Card title={`已实现盈亏 (${realizedLots.length})`} className="card">
+        {realizedLots.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+            暂无已实现盈亏记录
+          </div>
+        ) : (
           <List>
-            {marketStats.map((stat) => (
+            {realizedLots.map(lot => (
               <List.Item
-                key={stat.name}
-                title={stat.name}
-                description={`${stat.count}只基金`}
-                extra={<div style={{ textAlign: 'right' }}>
-                  <div>{formatMoney(stat.value)}</div>
-                  <div 
-                    style={{ 
-                      fontSize: 12, 
-                      color: stat.profit >= 0 ? '#ff4d4f' : '#52c41a'
-                    }}
-                  >
-                    {stat.profit >= 0 ? '+' : ''}{formatPercent(stat.profitRate)}
+                key={lot.id}
+                title={<div style={{ fontSize: 15, fontWeight: 500 }}>{lot.fundName || lot.fundCode}</div>}
+                description={
+                  <div style={{ fontSize: 13, color: '#999' }}>
+                    {lot.fundCode} | 买入 {lot.buyDate} → 卖出 {lot.sellDate} | 持有 {lot.holdingDays} 天
                   </div>
-                </div>}
-              />
+                }
+                extra={
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 500 }}>
+                      {formatMoney(lot.profit)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: lot.profit >= 0 ? '#ff4d4f' : '#52c41a'
+                      }}
+                    >
+                      {formatPercent(lot.profitRate)}
+                    </div>
+                  </div>
+                }
+              >
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ fontSize: 13, color: '#666' }}>
+                    份额: {lot.shares.toFixed(2)} | 买入: {lot.buyNav.toFixed(4)} → 卖出: {lot.sellNav.toFixed(4)}
+                  </div>
+                </div>
+              </List.Item>
             ))}
           </List>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            暂无持仓数据
-          </div>
         )}
       </Card>
     </>
   );
+
+  // 统计分析（简化版）
+  const renderStatsView = () => (
+    <Card title="资产分布" className="card">
+      {holdings.length > 0 ? (
+        <List>
+          {holdings.map(h => {
+            const value = h.currentValue ?? h.totalCost;
+            const totalValue = holdings.reduce((s, x) => s + (x.currentValue ?? x.totalCost), 0);
+            const pct = totalValue > 0 ? (value / totalValue * 100).toFixed(1) : '0.0';
+            return (
+              <List.Item
+                key={h.fundCode}
+                title={h.fundName || h.fundCode}
+                description={`占比 ${pct}%`}
+                extra={<div style={{ textAlign: 'right' }}>
+                  <div>{formatMoney(value)}</div>
+                  <div style={{ fontSize: 12, color: (h.profit ?? 0) >= 0 ? '#ff4d4f' : '#52c41a' }}>
+                    {(h.profit ?? 0) >= 0 ? '+' : ''}{formatPercent(h.profitRate ?? 0)}
+                  </div>
+                </div>}
+              />
+            );
+          })}
+        </List>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>暂无持仓数据</div>
+      )}
+    </Card>
+  );
+
+  if (loading) {
+    return (
+      <div className="page-container">
+        <h1 className="page-title">持仓管理</h1>
+        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>加载中...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-container">
       <h1 className="page-title">持仓管理</h1>
 
       {/* 资产总览 */}
-      <TotalAssetsCard holdings={holdings} pendingBuyAmount={pendingBuyAmount} />
+      <TotalAssetsCard holdings={holdings} pendingBuyAmount={pendingBuyAmount} realizedPnL={realizedPnL} />
 
       {/* 标签页切换 */}
       <Tabs
@@ -284,12 +321,67 @@ const Holdings: React.FC = () => {
         onChange={setActiveTab}
         style={{ marginBottom: 12 }}
       >
-        <Tabs.Tab title="持仓列表" key="list" />
+        <Tabs.Tab title="持仓明细" key="lots" />
+        <Tabs.Tab title="已实现盈亏" key="realized" />
         <Tabs.Tab title="统计分析" key="stats" />
       </Tabs>
 
       {/* 内容区域 */}
-      {activeTab === 'list' ? renderListView() : renderStatsView()}
+      {activeTab === 'lots' && renderLotsView()}
+      {activeTab === 'realized' && renderRealizedPnLView()}
+      {activeTab === 'stats' && renderStatsView()}
+
+      {/* 卖出弹窗 */}
+      {sellModal.lot && (
+        <Dialog
+          title={`卖出 - ${sellModal.lot.fundName || sellModal.lot.fundCode}`}
+          visible={true}
+          onClose={() => setSellModal({ lot: null, shares: '', loading: false })}
+          actions={[
+            [
+              {
+                key: 'cancel',
+                text: '取消',
+                onClick: () => setSellModal({ lot: null, shares: '', loading: false }),
+              },
+              {
+                key: 'confirm',
+                text: '确认卖出',
+                bold: true,
+                loading: sellModal.loading,
+                onClick: handleSellConfirm,
+              },
+            ],
+          ]}
+        >
+          <div style={{ padding: '16px 0' }}>
+            <div style={{ fontSize: 13, color: '#999', marginBottom: 8 }}>
+              可用份额: {sellModal.lot.remainingShares.toFixed(2)}
+            </div>
+            <Input
+              type="number"
+              placeholder="卖出份额"
+              value={sellModal.shares}
+              onChange={(val) => setSellModal(prev => ({ ...prev, shares: val }))}
+              style={{ height: 44, marginBottom: 12 }}
+            />
+            <Button
+              size="small"
+              color="primary"
+              fill="outline"
+              onClick={handleSellAll}
+              style={{ marginBottom: 8 }}
+            >
+              全部卖出
+            </Button>
+            {sellModal.shares && !isNaN(parseFloat(sellModal.shares)) && (
+              <div style={{ fontSize: 13, color: '#666' }}>
+                预计金额: {formatMoney(parseFloat(sellModal.shares) * (lotNavMap.get(sellModal.lot!.fundCode)?.nav ?? sellModal.lot!.cost))}
+              </div>
+            )}
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 };

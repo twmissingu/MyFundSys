@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, Toast } from 'antd-mobile';
 import { useHoldings, useTransactions } from '../hooks/useSync';
 import { fetchMarketValuation } from '../services/fundApi';
-import { processPendingTransactions } from '../services/navUpdateService';
+import { processPendingTransactions, deriveRealizedLots } from '../services/navUpdateService';
 import { formatMoney, formatPercent, getValuationStatus } from '../utils';
 import TotalAssetsCard from '../components/TotalAssetsCard';
 import type { MarketValuationData } from '../types';
@@ -31,6 +31,10 @@ const Dashboard: React.FC = () => {
     .filter(t => t.status === 'pending' && t.type === 'buy')
     .reduce((sum, t) => sum + t.amount, 0);
 
+  // 计算已实现盈亏
+  const realizedLots = deriveRealizedLots(transactions);
+  const realizedPnL = realizedLots.reduce((sum, lot) => sum + lot.profit, 0);
+
   const loadValuation = async () => {
     try {
       const data = await fetchMarketValuation();
@@ -48,11 +52,17 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="page-container">
-      <h1 className="page-title">MyFundSys</h1>
+      <h1 className="page-title">基金投资管理系统</h1>
 
       {/* 市场估值卡片 */}
       {valuation && (
-        <div className={`valuation-indicator ${valuationStatus?.text === '钻石坑' ? 'diamond' : valuationStatus?.text === '危险' ? 'danger' : 'normal'}`}>
+        <div
+          className="valuation-indicator"
+          style={{
+            background: valuation.error ? '#fff7e6' : `${valuationStatus?.color}15`,
+            border: `1px solid ${valuation.error ? '#ffd591' : valuationStatus?.color}`,
+          }}
+        >
           <div>
             <div className="valuation-title">
               {valuation.error ? (
@@ -61,7 +71,19 @@ const Dashboard: React.FC = () => {
                   <span style={{ fontSize: 11, marginLeft: 8, color: '#ff4d4f' }}>(默认)</span>
                 </>
               ) : (
-                <>市场估值: {valuationStatus?.text}</>
+                <>
+                  市场估值: {valuationStatus?.text}
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: valuationStatus?.color,
+                      marginLeft: 8,
+                    }}
+                  />
+                </>
               )}
               {!valuation.error && valuation.source === 'qieman' && (
                 <span style={{ fontSize: 11, marginLeft: 8, opacity: 0.7 }}>(且慢)</span>
@@ -80,7 +102,7 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* 资产总览 */}
-      <TotalAssetsCard holdings={holdings} pendingBuyAmount={pendingBuyAmount} />
+      <TotalAssetsCard holdings={holdings} pendingBuyAmount={pendingBuyAmount} realizedPnL={realizedPnL} />
 
       {/* 持仓概览 */}
       <Card title="持仓概览" className="card">
@@ -93,17 +115,17 @@ const Dashboard: React.FC = () => {
             {holdings.slice(0, 5).map((holding) => (
               <div key={holding.id} className="list-item">
                 <div className="item-left">
-                  <div className="item-title">{holding.fundName}</div>
+                  <div className="item-title">{holding.fundName || holding.fundCode}</div>
                   <div className="item-subtitle">{holding.fundCode}</div>
                 </div>
                 <div className="item-right">
-                  <div className="item-value">{formatMoney(holding.currentValue || holding.totalCost)}</div>
+                  <div className="item-value">{formatMoney(holding.currentValue ?? holding.totalCost)}</div>
                   <div 
                     className="item-change" 
-                    style={{ color: (holding.profit || 0) >= 0 ? '#ff4d4f' : '#52c41a' }}
+                    style={{ color: (holding.profit ?? 0) >= 0 ? '#ff4d4f' : '#52c41a' }}
                   >
-                    {(holding.profit || 0) >= 0 ? '+' : ''}
-                    {formatPercent(holding.profitRate || 0)}
+                    {(holding.profit ?? 0) >= 0 ? '+' : ''}{formatMoney(holding.profit ?? 0)}
+                    <span style={{ marginLeft: 4 }}>({formatPercent(holding.profitRate ?? 0)})</span>
                   </div>
                 </div>
               </div>

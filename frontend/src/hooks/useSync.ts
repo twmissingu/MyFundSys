@@ -2,15 +2,17 @@
  * 数据访问 Hooks
  * 
  * Supabase 为唯一数据源
+ * 持仓从交易记录派生，不再依赖 holdings 表
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { removeTransactionWithHoldingUpdate, removeHoldingWithTransactions } from '../services/navUpdateService';
+import { removeTransactionWithHoldingUpdate, removeHoldingWithTransactions, deriveLots, summarizeHoldings } from '../services/navUpdateService';
+import { fetchFundNav } from '../services/fundApi';
 import type { Holding, Transaction } from '../types';
+import type { Lot, RealizedLot } from '../services/navUpdateService';
 import type { Database } from '../types/database';
 
-type HoldingsInsert = Database['public']['Tables']['holdings']['Insert'];
 type TransactionsInsert = Database['public']['Tables']['transactions']['Insert'];
 
 // ============================================
@@ -55,10 +57,7 @@ export function useSyncStatus() {
     setStatus(s => ({ ...s, isSyncing: true }));
     
     try {
-      await Promise.all([
-        supabase.from('holdings').select('*'),
-        supabase.from('transactions').select('*'),
-      ]);
+      await supabase.from('transactions').select('*');
       
       setStatus(s => ({ 
         ...s, 
@@ -80,24 +79,6 @@ export function useSyncStatus() {
 // 数据访问 Hooks
 // ============================================
 
-function mapHolding(h: any): Holding {
-  return {
-    id: h.id,
-    fundId: h.fund_code,
-    fundCode: h.fund_code,
-    fundName: h.fund_name,
-    shares: h.shares,
-    avgCost: h.avg_nav,
-    totalCost: h.total_cost,
-    currentNav: h.current_nav,
-    currentValue: h.market_value,
-    profit: h.profit,
-    profitRate: h.profit_rate,
-    createdAt: h.created_at,
-    updatedAt: h.updated_at,
-  };
-}
-
 function mapTransaction(t: any): Transaction {
   return {
     id: t.id,
@@ -116,20 +97,34 @@ function mapTransaction(t: any): Transaction {
   };
 }
 
+/**
+ * 持仓 Hook
+ * 从交易记录派生批次，汇总为基金级持仓，再获取最新净值计算盈亏
+ */
 export function useHoldings() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadHoldings = useCallback(async () => {
     try {
       if (isSupabaseConfigured()) {
-        const { data, error } = await supabase.from('holdings').select('*');
-        if (!error && data) {
-          setHoldings(data.map(mapHolding));
+        const { data: txData, error } = await supabase.from('transactions').select('*');
+        if (!error && txData) {
+          const transactions = txData.map(mapTransaction);
+          // 从交易派生批次
+          const derivedLots = deriveLots(transactions);
+          setLots(derivedLots);
+          // 汇总为基金级持仓
+          const summaries = summarizeHoldings(derivedLots);
+          // 获取最新净值，计算市值和盈亏
+          const enriched = await enrichHoldingsWithNav(summaries);
+          setHoldings(enriched);
           return;
         }
       }
       setHoldings([]);
+      setLots([]);
     } finally {
       setLoading(false);
     }
@@ -144,25 +139,16 @@ export function useHoldings() {
     await loadHoldings();
   }, [loadHoldings]);
 
-  const saveHolding = useCallback(async (holding: Omit<Holding, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const payload: HoldingsInsert = {
-      fund_code: holding.fundCode,
-      fund_name: holding.fundName,
-      shares: holding.shares,
-      avg_nav: holding.avgCost,
-      total_cost: holding.totalCost,
-    };
-    const { data } = await (supabase.from('holdings').insert as any)(payload).select();
-    return data?.[0]?.id;
-  }, []);
-
   const removeHolding = useCallback(async (id: string) => {
     await removeHoldingWithTransactions(id);
   }, []);
 
-  return { holdings, loading, saveHolding, removeHolding, refresh };
+  return { holdings, lots, loading, removeHolding, refresh };
 }
 
+/**
+ * 交易记录 Hook
+ */
 export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,6 +198,76 @@ export function useTransactions() {
   }, []);
 
   return { transactions, loading, saveTransaction, removeTransaction, refresh };
+}
+
+/**
+ * 批量获取持仓的最新净值，实时计算市值和盈亏
+ */
+async function enrichHoldingsWithNav(summaries: ReturnType<typeof summarizeHoldings>): Promise<Holding[]> {
+  if (summaries.length === 0) return [];
+
+  const fundCodes = [...new Set(summaries.map(s => s.fundCode))];
+  const navMap = new Map<string, { nav: number; navDate: string; name: string }>();
+
+  const batchSize = 5;
+  for (let i = 0; i < fundCodes.length; i += batchSize) {
+    const batch = fundCodes.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (code) => {
+        try {
+          const navData = await fetchFundNav(code);
+          if (navData && navData.nav > 0) {
+            return { code, nav: navData.nav, navDate: navData.navDate, name: navData.name };
+          }
+        } catch {
+          // 忽略单个基金获取失败
+        }
+        return null;
+      })
+    );
+    results.forEach(r => { if (r) navMap.set(r.code, { nav: r.nav, navDate: r.navDate, name: r.name }); });
+    if (i + batchSize < fundCodes.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  return summaries.map(summary => {
+    const navInfo = navMap.get(summary.fundCode);
+    if (navInfo) {
+      const currentValue = navInfo.nav * summary.shares;
+      const profit = currentValue - summary.totalCost;
+      const profitRate = summary.totalCost > 0 ? profit / summary.totalCost : 0;
+      return {
+        id: summary.fundCode,
+        fundId: summary.fundCode,
+        fundCode: summary.fundCode,
+        fundName: summary.fundName || navInfo.name || summary.fundCode,
+        shares: summary.shares,
+        avgCost: summary.avgCost,
+        totalCost: summary.totalCost,
+        currentNav: navInfo.nav,
+        currentValue,
+        profit,
+        profitRate,
+        createdAt: '',
+        updatedAt: '',
+      };
+    }
+    return {
+      id: summary.fundCode,
+      fundId: summary.fundCode,
+      fundCode: summary.fundCode,
+      fundName: summary.fundName,
+      shares: summary.shares,
+      avgCost: summary.avgCost,
+      totalCost: summary.totalCost,
+      currentValue: summary.totalCost,
+      profit: 0,
+      profitRate: 0,
+      createdAt: '',
+      updatedAt: '',
+    };
+  });
 }
 
 // ============================================

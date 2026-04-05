@@ -44,7 +44,8 @@ const FundDetail: React.FC = () => {
           .from('favorite_funds')
           .select('*')
           .eq('fund_code', fundCode)
-          .single();
+          .limit(1)
+          .maybeSingle();
         setIsFavorite(!!favorite);
         
         if (favorite) {
