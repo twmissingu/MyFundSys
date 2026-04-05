@@ -50,12 +50,13 @@ const Holdings: React.FC = () => {
   }>({ lot: null, shares: '', loading: false });
 
   const handleSellClick = (lot: Lot) => {
-    setSellModal({ lot, shares: lot.remainingShares.toFixed(2), loading: false });
+    setSellModal({ lot, shares: '', loading: false });
   };
 
-  const handleSellAll = () => {
+  const handleSellFraction = (fraction: number) => {
     if (sellModal.lot) {
-      setSellModal(prev => ({ ...prev, shares: prev.lot!.remainingShares.toFixed(2) }));
+      const shares = Math.round(sellModal.lot.remainingShares * fraction * 100) / 100;
+      setSellModal(prev => ({ ...prev, shares: shares.toFixed(2) }));
     }
   };
 
@@ -144,11 +145,11 @@ const Holdings: React.FC = () => {
         </div>
       ) : (
         <List>
-          {lots.map(lot => {
+          {lots.map((lot, index) => {
             // 在途买入
             if (lot.isPending) {
               return (
-                <div key={lot.id} style={{ padding: '12px 16px', marginBottom: 8, background: '#f5f5f5', borderRadius: '8px' }}>
+                <div key={`lot-${index}`} style={{ padding: '12px 16px', marginBottom: 8, background: '#f5f5f5', borderRadius: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 500 }}>{lot.fundName || lot.fundCode}</div>
@@ -178,7 +179,7 @@ const Holdings: React.FC = () => {
 
             return (
               <SwipeAction
-                key={lot.id}
+                key={`lot-${index}`}
                 rightActions={[
                   {
                     key: 'sell',
@@ -250,9 +251,9 @@ const Holdings: React.FC = () => {
           </div>
         ) : (
           <List>
-            {realizedLots.map(lot => (
+            {realizedLots.map((lot, index) => (
               <List.Item
-                key={lot.id}
+                key={`realized-${index}`}
                 title={<div style={{ fontSize: 15, fontWeight: 500 }}>{lot.fundName || lot.fundCode}</div>}
                 description={
                   <div style={{ fontSize: 13, color: '#999' }}>
@@ -378,15 +379,44 @@ const Holdings: React.FC = () => {
               style={{ height: 44, marginBottom: 12 }}
             />
 
-            <Button
-              size="small"
-              color="primary"
-              fill="outline"
-              onClick={handleSellAll}
-              style={{ marginBottom: 16 }}
-            >
-              全部卖出
-            </Button>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <Button
+                size="small"
+                color="primary"
+                fill="outline"
+                onClick={() => handleSellFraction(0.25)}
+                style={{ flex: 1 }}
+              >
+                1/4
+              </Button>
+              <Button
+                size="small"
+                color="primary"
+                fill="outline"
+                onClick={() => handleSellFraction(1 / 3)}
+                style={{ flex: 1 }}
+              >
+                1/3
+              </Button>
+              <Button
+                size="small"
+                color="primary"
+                fill="outline"
+                onClick={() => handleSellFraction(0.5)}
+                style={{ flex: 1 }}
+              >
+                1/2
+              </Button>
+              <Button
+                size="small"
+                color="primary"
+                fill="outline"
+                onClick={() => handleSellFraction(1)}
+                style={{ flex: 1 }}
+              >
+                全部卖出
+              </Button>
+            </div>
 
             {sellModal.shares && !isNaN(parseFloat(sellModal.shares)) && (
               <div style={{ fontSize: 13, color: '#666', marginBottom: 20 }}>

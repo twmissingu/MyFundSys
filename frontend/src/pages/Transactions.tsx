@@ -617,8 +617,7 @@ const Transactions: React.FC = () => {
                               {transaction.fundName}
                             </div>
                             <Tag 
-                              color={transaction.type === 'buy' ? 'success' : 'danger'}
-                              style={{ marginLeft: 8, fontSize: 11 }}
+                              style={{ marginLeft: 8, fontSize: 11, background: transaction.type === 'buy' ? '#fff1f0' : '#f6ffed', color: transaction.type === 'buy' ? '#ff4d4f' : '#52c41a', border: `1px solid ${transaction.type === 'buy' ? '#ffa39e' : '#b7eb8f'}` }}
                             >
                               {transaction.type === 'buy' ? '买入' : '卖出'}
                             </Tag>

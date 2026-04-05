@@ -121,8 +121,8 @@ export function deriveRealizedLots(transactions: Transaction[]): RealizedLot[] {
       const sellFromLot = Math.min(lot.remainingShares, remainingToSell);
       lot.remainingShares -= sellFromLot;
 
-      // 如果该批次全部卖出，记录已实现盈亏
-      if (lot.remainingShares === 0) {
+      // 如果该批次全部卖出（剩余份额 < 0.01 视为已卖完），记录已实现盈亏
+      if (lot.remainingShares < 0.01) {
         const sellDate = new Date(sell.date);
         const buyDate = new Date(lot.date);
         const holdingDays = Math.max(0, Math.floor((sellDate.getTime() - buyDate.getTime()) / (1000 * 60 * 60 * 24)));

@@ -34,24 +34,23 @@ const TotalAssetsCard: React.FC<TotalAssetsCardProps> = ({
 
   return (
     <div className="stat-card">
-      <div className="stat-label">总资产</div>
-      <div className="stat-value">{formatMoney(totalAssets)}</div>
-      <div
-        className="stat-change"
-        style={{ color: floatingPnL >= 0 ? '#ffccc7' : '#b7eb8f' }}
-      >
-        浮动盈亏: {floatingPnL >= 0 ? '+' : ''}{formatMoney(floatingPnL)} ({formatPercent(floatingPnLRate)})
+      <div className="stat-label" style={{ color: '#333' }}>总资产</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+        <div className="stat-value" style={{ color: '#faad14' }}>{formatMoney(totalAssets)}</div>
+        {pendingBuyAmount > 0 && (
+          <span style={{ fontSize: 12, color: '#999' }}>（含在途{formatMoney(pendingBuyAmount)}）</span>
+        )}
       </div>
-      {realizedPnL !== 0 && (
-        <div style={{ fontSize: 13, color: '#999', marginTop: 2 }}>
+      <div style={{ fontSize: 13, marginTop: 4 }}>
+        <span style={{ color: floatingPnL >= 0 ? '#ff4d4f' : '#52c41a' }}>
+          浮动盈亏: {floatingPnL >= 0 ? '+' : ''}{formatMoney(floatingPnL)} ({formatPercent(floatingPnLRate)})
+        </span>
+      </div>
+      <div style={{ fontSize: 13, marginTop: 2 }}>
+        <span style={{ color: totalPnL >= 0 ? '#ff4d4f' : '#52c41a' }}>
           累计盈亏: {totalPnL >= 0 ? '+' : ''}{formatMoney(totalPnL)}
-        </div>
-      )}
-      {pendingBuyAmount > 0 && (
-        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-          含在途买入 {formatMoney(pendingBuyAmount)}
-        </div>
-      )}
+        </span>
+      </div>
     </div>
   );
 };
