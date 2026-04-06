@@ -1,16 +1,18 @@
 import React, { useState, useRef } from 'react';
 import { Card, List, Button, Toast, Dialog } from 'antd-mobile';
 import { exportDatabase, importDatabase, resetDatabase } from '../db';
-import { useHoldings, useTransactions } from '../hooks/useSync';
-import { exportHoldingsToCSV, exportTransactionsToCSV } from '../utils/csv';
+import { useTransactions } from '../hooks/useSync';
+import { exportHoldingsToCSV, exportTransactionsToCSV, importTransactionsFromCSV } from '../utils/csv';
+import { addTransactionWithHoldingUpdate } from '../services/navUpdateService';
 import './Layout.css';
 
 const Settings: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const { holdings } = useHoldings();
-  const { transactions } = useTransactions();
+  const [csvImporting, setCsvImporting] = useState(false);
+  const { transactions, refresh } = useTransactions();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleReset = async () => {
     Dialog.confirm({
@@ -70,6 +72,53 @@ const Settings: React.FC = () => {
     fileInputRef.current?.click();
   };
 
+  const handleCsvImportClick = () => {
+    csvFileInputRef.current?.click();
+  };
+
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setCsvImporting(true);
+      const content = await file.text();
+      const parsedTransactions = importTransactionsFromCSV(content);
+
+      if (parsedTransactions.length === 0) {
+        Toast.show({ content: 'CSV 文件中没有有效交易记录', position: 'bottom' });
+        return;
+      }
+
+      // 批量导入交易
+      let successCount = 0;
+      let failCount = 0;
+      for (const tx of parsedTransactions) {
+        try {
+          await addTransactionWithHoldingUpdate(tx);
+          successCount++;
+        } catch (err) {
+          failCount++;
+          console.error(`导入交易失败: ${tx.fundCode} ${tx.date}`, err);
+        }
+      }
+
+      if (failCount === 0) {
+        Toast.show({ content: `成功导入 ${successCount} 笔交易`, position: 'bottom' });
+      } else {
+        Toast.show({ content: `导入完成: ${successCount} 成功, ${failCount} 失败`, position: 'bottom' });
+      }
+
+      await refresh();
+    } catch (err: any) {
+      Toast.show({ content: err.message || 'CSV 导入失败', position: 'bottom' });
+    } finally {
+      setCsvImporting(false);
+      // 重置 file input
+      if (e.target) e.target.value = '';
+    }
+  };
+
   return (
     <div className="page-container">
       <h1 className="page-title">设置</h1>
@@ -101,6 +150,22 @@ const Settings: React.FC = () => {
               style={{ display: 'none' }}
             />
             <Button size="mini" color="primary" loading={importing} onClick={handleImportClick}>
+              导入
+            </Button>
+          </List.Item>
+          <List.Item
+            title="导入交易记录 (CSV)"
+            description="从 CSV 文件批量导入交易"
+            arrow={false}
+          >
+            <input
+              ref={csvFileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleCsvImport}
+              style={{ display: 'none' }}
+            />
+            <Button size="mini" color="primary" loading={csvImporting} onClick={handleCsvImportClick}>
               导入
             </Button>
           </List.Item>

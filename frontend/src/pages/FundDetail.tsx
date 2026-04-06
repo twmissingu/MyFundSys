@@ -92,23 +92,24 @@ const FundDetail: React.FC = () => {
 
   // 切换收藏状态
   const toggleFavorite = async () => {
-    if (!fundInfo) return;
+    if (!fundCode) return;
+    
+    const name = fundInfo?.name || fundData?.name || fundCode;
+    const category = fundInfo?.category || '未知';
     
     try {
       if (isFavorite) {
         // 取消收藏
-        await db.favoriteFunds.where('code').equals(fundCode).delete();
+        await supabase.from('favorite_funds').delete().eq('fund_code', fundCode);
         setIsFavorite(false);
         Toast.show({ content: '已取消收藏', position: 'bottom' });
       } else {
         // 添加收藏
-        await db.favoriteFunds.add({
-          id: `fav_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          code: fundCode,
-          name: fundInfo.name,
-          category: fundInfo.category,
-          createdAt: new Date().toISOString(),
-        });
+        await supabase.from('favorite_funds').insert({
+          fund_code: fundCode,
+          fund_name: name,
+          category,
+        } as any);
         setIsFavorite(true);
         Toast.show({ content: '已收藏', position: 'bottom' });
       }
@@ -122,7 +123,7 @@ const FundDetail: React.FC = () => {
   };
 
   // 如果还没有任何基金信息且还在加载中，显示加载状态
-  if (!fundInfo && loading) {
+  if (!fundInfo && !fundData && loading) {
     return (
       <div className="page-container">
         <div style={{ textAlign: 'center', padding: '40px' }}>
@@ -134,7 +135,7 @@ const FundDetail: React.FC = () => {
   }
 
   // 如果没有基金信息且加载完成，显示不存在
-  if (!fundInfo && !loading) {
+  if (!fundInfo && !fundData && !loading) {
     return (
       <div className="page-container">
         <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
@@ -156,8 +157,22 @@ const FundDetail: React.FC = () => {
     return colors[category] || 'default';
   };
 
-  // 使用 fundInfo（可能来自预设列表、缓存或 API）
-  const displayFund = fundInfo!;
+  // 使用 fundInfo（可能来自预设列表、缓存或 API），若 fundInfo 为空则用 fundData 兜底
+  const displayFund = fundInfo || (fundData ? {
+    code: fundCode,
+    name: fundData.name || fundCode,
+    category: '未知',
+  } : null);
+
+  if (!displayFund) {
+    return (
+      <div className="page-container">
+        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+          基金不存在
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-container">

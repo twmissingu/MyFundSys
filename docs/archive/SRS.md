@@ -274,8 +274,8 @@ frontend/.env.local    → 测试 Supabase (不提交)
 
 ### 10.1 单元测试
 - 框架: Vitest v4 + @testing-library/react
-- 数量: 85 个测试用例
-- 覆盖: fundApi, transactionDateNav, 核心工具函数
+- 数量: 111 个测试用例
+- 覆盖: fundApi, lotDerivation, transactionDateNav, canDeleteTransaction, refactorVerification, 核心工具函数
 
 ### 10.2 E2E 测试
 - 框架: Playwright

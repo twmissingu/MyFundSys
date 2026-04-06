@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { removeTransactionWithHoldingUpdate, removeHoldingWithTransactions, deriveLots, summarizeHoldings } from '../services/navUpdateService';
+import { batchFetchNav } from '../services/fundApi';
 import { fetchFundNav } from '../services/fundApi';
 import type { Holding, Transaction } from '../types';
 import type { Lot, RealizedLot } from '../services/navUpdateService';
@@ -87,7 +88,7 @@ function mapTransaction(t: any): Transaction {
     fundName: t.fund_name,
     type: t.type,
     date: t.date,
-    confirmDate: t.date,
+    confirmDate: t.confirm_date || t.date,
     amount: t.amount,
     price: t.nav,
     shares: t.shares,
@@ -207,29 +208,7 @@ async function enrichHoldingsWithNav(summaries: ReturnType<typeof summarizeHoldi
   if (summaries.length === 0) return [];
 
   const fundCodes = [...new Set(summaries.map(s => s.fundCode))];
-  const navMap = new Map<string, { nav: number; navDate: string; name: string }>();
-
-  const batchSize = 5;
-  for (let i = 0; i < fundCodes.length; i += batchSize) {
-    const batch = fundCodes.slice(i, i + batchSize);
-    const results = await Promise.all(
-      batch.map(async (code) => {
-        try {
-          const navData = await fetchFundNav(code);
-          if (navData && navData.nav > 0) {
-            return { code, nav: navData.nav, navDate: navData.navDate, name: navData.name };
-          }
-        } catch {
-          // 忽略单个基金获取失败
-        }
-        return null;
-      })
-    );
-    results.forEach(r => { if (r) navMap.set(r.code, { nav: r.nav, navDate: r.navDate, name: r.name }); });
-    if (i + batchSize < fundCodes.length) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
+  const navMap = await batchFetchNav(fundCodes);
 
   return summaries.map(summary => {
     const navInfo = navMap.get(summary.fundCode);
@@ -281,7 +260,9 @@ export function useStrategies() {
   const loadStrategies = useCallback(async () => {
     setLoading(true);
     try {
-      setStrategies([]);
+      // 从 localStorage 加载自定义策略
+      const customStrategies = JSON.parse(localStorage.getItem('customStrategies') || '[]');
+      setStrategies(customStrategies);
     } finally {
       setLoading(false);
     }

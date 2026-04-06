@@ -46,6 +46,8 @@ const Layout: React.FC = () => {
         setActiveKey('funds');
         setCurrentView({ type: 'tab' });
       } else {
+        // 无效 hash 回退到 dashboard
+        setActiveKey('dashboard');
         setCurrentView({ type: 'tab' });
       }
     };

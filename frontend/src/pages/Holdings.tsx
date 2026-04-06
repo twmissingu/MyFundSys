@@ -3,7 +3,7 @@ import { Card, List, Toast, SwipeAction, Tabs, Popup, Input, Button, Dialog } fr
 import { CloseOutline } from 'antd-mobile-icons';
 import { useHoldings, useTransactions } from '../hooks/useSync';
 import { deriveLots, deriveRealizedLots, type Lot } from '../services/navUpdateService';
-import { fetchFundNav } from '../services/fundApi';
+import { fetchFundNav, batchFetchNav } from '../services/fundApi';
 import { formatMoney, formatPercent } from '../utils';
 import TotalAssetsCard from '../components/TotalAssetsCard';
 import './Layout.css';
@@ -76,7 +76,13 @@ const Holdings: React.FC = () => {
     try {
       // 获取最新净值
       const navData = await fetchFundNav(sellModal.lot!.fundCode);
-      const price = navData?.nav || sellModal.lot!.cost;
+      // 验证 NAV 有效性，无法获取时阻止操作
+      if (!navData || navData.nav <= 0) {
+        Toast.show({ content: '无法获取最新净值，请稍后再试', position: 'bottom' });
+        setSellModal(prev => ({ ...prev, loading: false }));
+        return;
+      }
+      const price = navData.nav;
       const amount = sellShares * price;
 
       // 创建卖出交易
@@ -111,26 +117,12 @@ const Holdings: React.FC = () => {
     if (lots.length === 0) return;
     const fetchNavs = async () => {
       const fundCodes = [...new Set(lots.map(l => l.fundCode))];
+      const navMapResult = await batchFetchNav(fundCodes);
+      // 转换为 Holdings 页面需要的格式
       const map = new Map<string, { nav: number; navDate: string }>();
-      const batchSize = 5;
-      for (let i = 0; i < fundCodes.length; i += batchSize) {
-        const batch = fundCodes.slice(i, i + batchSize);
-        const results = await Promise.all(
-          batch.map(async (code) => {
-            try {
-              const navData = await fetchFundNav(code);
-              if (navData && navData.nav > 0) {
-                return { code, nav: navData.nav, navDate: navData.navDate };
-              }
-            } catch { /* ignore */ }
-            return null;
-          })
-        );
-        results.forEach(r => { if (r) map.set(r.code, { nav: r.nav, navDate: r.navDate }); });
-        if (i + batchSize < fundCodes.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      }
+      navMapResult.forEach((val, key) => {
+        map.set(key, { nav: val.nav, navDate: val.navDate });
+      });
       setLotNavMap(map);
     };
     fetchNavs();

@@ -9,14 +9,12 @@ interface Holding {
 
 interface TotalAssetsCardProps {
   holdings: Holding[];
-  showProfitLabel?: boolean;
   pendingBuyAmount?: number;
   realizedPnL?: number;
 }
 
 const TotalAssetsCard: React.FC<TotalAssetsCardProps> = ({
   holdings,
-  showProfitLabel = false,
   pendingBuyAmount = 0,
   realizedPnL = 0,
 }) => {

@@ -89,7 +89,7 @@ frontend/.env.local    → 测试 Supabase (本地优先使用)
 ### Unit Tests (Vitest)
 - Framework: Vitest v4 + @testing-library/react + fake-indexeddb
 - Setup file: `src/__tests__/setup.ts`
-- 85 tests covering fundApi, transaction date/NAV logic
+- **103 tests** covering fundApi, lot derivation, transaction date/NAV logic
 
 **Mock pattern** - use `vi.hoisted()` for mocks that must exist before module load:
 

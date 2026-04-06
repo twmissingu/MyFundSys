@@ -445,7 +445,6 @@ const StrategyPage: React.FC = () => {
               startDate: '2020-01-01',
               endDate: '2024-01-01',
               initialCapital: 100000,
-              basePrice: 3.5,
             }}
           >
             <Form.Item
@@ -478,14 +477,6 @@ const StrategyPage: React.FC = () => {
               rules={[{ required: true }]}
             >
               <Input type="number" placeholder="100000" />
-            </Form.Item>
-
-            <Form.Item
-              name="basePrice"
-              label="基准价格"
-              rules={[{ required: true }]}
-            >
-              <Input type="number" placeholder="3.5" />
             </Form.Item>
           </Form>
         }

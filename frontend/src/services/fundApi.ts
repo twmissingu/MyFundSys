@@ -39,6 +39,7 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
     if (error) throw error;
     if (data) {
       if (data.estimateNav && data.estimateRate !== undefined) {
+        // 估算净值：显示从上一交易日确认净值到今日估算净值的涨跌
         return {
           code: data.code,
           name: data.name,
@@ -49,6 +50,7 @@ async function fetchFromEastMoney(fundCode: string): Promise<FundApiData | null>
         };
       }
 
+      // 无估算数据时，从历史净值中获取实际日涨跌幅
       const historyData = await fetchFundHistory(fundCode, 5, 1, '');
       if (historyData.length >= 1) {
         const latestHistory = historyData[0];
@@ -140,37 +142,47 @@ async function fetchFromLocalJson(): Promise<MarketValuationData | null> {
 // 基金搜索
 // ============================================
 
-export async function searchByCode(code: string): Promise<FundSearchResult[]> {
-  if (!code || code.trim().length < 2) return [];
-  try {
-    const apiResults = await searchFromEastMoney(code.trim());
-    return apiResults.filter(f =>
-      f.code.toLowerCase().startsWith(code.trim().toLowerCase())
-    ).slice(0, 10);
-  } catch {
-    return [];
-  }
-}
+const FUND_CODE_REGEX = /^\d+$/;
 
-export async function searchByName(name: string): Promise<FundSearchResult[]> {
-  if (!name || name.trim().length < 2) return [];
-  try {
-    const apiResults = await searchFromEastMoney(name.trim());
-    return apiResults.filter(f =>
-      f.name.toLowerCase().includes(name.trim().toLowerCase())
-    ).slice(0, 10);
-  } catch {
-    return [];
-  }
-}
-
+/**
+ * 统一基金搜索：自动检测关键词类型
+ * - 纯数字：按基金代码搜索（前缀匹配）
+ * - 其他：按基金名称搜索（模糊匹配）
+ */
 export async function searchFunds(keyword: string): Promise<FundSearchResult[]> {
   if (!keyword || keyword.trim().length < 2) return [];
   try {
-    return await searchFromEastMoney(keyword.trim());
+    const trimmed = keyword.trim();
+    const apiResults = await searchFromEastMoney(trimmed);
+    
+    if (FUND_CODE_REGEX.test(trimmed)) {
+      // 按代码搜索：前缀匹配
+      return apiResults.filter(f =>
+        f.code.toLowerCase().startsWith(trimmed.toLowerCase())
+      ).slice(0, 10);
+    } else {
+      // 按名称搜索：模糊匹配
+      return apiResults.filter(f =>
+        f.name.toLowerCase().includes(trimmed.toLowerCase())
+      ).slice(0, 10);
+    }
   } catch {
     return [];
   }
+}
+
+/**
+ * @deprecated 使用 searchFunds 替代
+ */
+export async function searchByCode(code: string): Promise<FundSearchResult[]> {
+  return searchFunds(code);
+}
+
+/**
+ * @deprecated 使用 searchFunds 替代
+ */
+export async function searchByName(name: string): Promise<FundSearchResult[]> {
+  return searchFunds(name);
 }
 
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
@@ -193,6 +205,41 @@ async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]>
 // ============================================
 // 批量基金净值操作
 // ============================================
+
+/**
+ * 批量获取基金净值，返回 Map 方便查找
+ * @param fundCodes 基金代码数组
+ * @returns Map<基金代码, { nav, navDate, name }>
+ */
+export async function batchFetchNav(
+  fundCodes: string[]
+): Promise<Map<string, { nav: number; navDate: string; name: string }>> {
+  const navMap = new Map<string, { nav: number; navDate: string; name: string }>();
+  const batchSize = 5;
+
+  for (let i = 0; i < fundCodes.length; i += batchSize) {
+    const batch = fundCodes.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (code) => {
+        try {
+          const navData = await fetchFundNav(code);
+          if (navData && navData.nav > 0) {
+            return { code, nav: navData.nav, navDate: navData.navDate, name: navData.name };
+          }
+        } catch {
+          // 忽略单个基金获取失败
+        }
+        return null;
+      })
+    );
+    results.forEach(r => { if (r) navMap.set(r.code, { nav: r.nav, navDate: r.navDate, name: r.name }); });
+    if (i + batchSize < fundCodes.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  return navMap;
+}
 
 export async function fetchMultipleFundsNav(fundCodes: string[]): Promise<FundApiData[]> {
   const results: FundApiData[] = [];

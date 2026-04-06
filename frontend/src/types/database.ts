@@ -18,6 +18,7 @@ export interface Database {
           amount: number;
           fee: number;
           date: string;
+          confirm_date: string | null;
           status: 'pending' | 'completed';
           created_at: string;
           updated_at: string;
@@ -32,6 +33,7 @@ export interface Database {
           amount: number;
           fee?: number;
           date: string;
+          confirm_date?: string | null;
           status?: 'pending' | 'completed';
           created_at?: string;
           updated_at?: string;

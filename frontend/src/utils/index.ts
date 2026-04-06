@@ -116,3 +116,27 @@ export function calculateStdDev(data: number[]): number {
   const variance = data.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / data.length;
   return Math.sqrt(variance);
 }
+
+// ============================================
+// 交易日工具函数
+// ============================================
+
+/**
+ * 判断是否为交易日（周一至周五，不考虑节假日）
+ */
+export function isTradeDay(date: Date): boolean {
+  const day = date.getDay();
+  return day !== 0 && day !== 6;
+}
+
+/**
+ * 获取下一个交易日
+ */
+export function getNextTradeDay(date: Date): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  while (!isTradeDay(next)) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+}

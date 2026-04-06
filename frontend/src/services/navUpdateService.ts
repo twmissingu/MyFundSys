@@ -254,10 +254,10 @@ export function canDeleteTransaction(
     return { canDelete: true };
   }
 
-  // 买入交易：检查是否有卖出交易匹配了该批次
+  // 买入交易：按日期排序（与 deriveLots 保持一致）
   const buyTxs = transactions
     .filter(t => t.type === 'buy' && t.status === 'completed')
-    .sort((a, b) => a.price - b.price || a.date.localeCompare(b.date));
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   const sellTxs = transactions
     .filter(t => t.type === 'sell' && t.status === 'completed')
@@ -388,6 +388,12 @@ export function reverseTransactionOnHolding(
 // 原子性交易操作
 // ============================================
 
+/**
+ * 添加交易记录并自动更新持仓
+ * @param transaction 交易数据（不含 id 和 createdAt）
+ * @returns 插入结果，包含 transactionId 和 holdingUpdated 状态
+ * @throws 插入失败时抛出错误
+ */
 export async function addTransactionWithHoldingUpdate(
   transaction: Omit<Transaction, 'id' | 'createdAt'>
 ): Promise<{ transactionId: string; holdingUpdated: boolean }> {
@@ -407,13 +413,26 @@ export async function addTransactionWithHoldingUpdate(
     amount: transaction.amount,
     fee: transaction.fee || 0,
     date: transaction.date,
+    confirm_date: transaction.confirmDate || null,
     status: transaction.status || 'completed',
   };
 
-  await supabase.from('transactions').insert(txPayload as any);
+  const { data, error } = await supabase
+    .from('transactions')
+    .insert(txPayload as any)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`插入交易记录失败: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error('插入交易记录成功但未返回数据');
+  }
 
   return {
-    transactionId,
+    transactionId: data.id,
     holdingUpdated: transaction.status === 'completed',
   };
 }
@@ -435,20 +454,32 @@ export async function removeTransactionWithHoldingUpdate(
   await supabase.from('transactions').delete().eq('id', transactionId);
 }
 
-export async function removeHoldingWithTransactions(holdingId: string): Promise<void> {
+/**
+ * 删除持仓及其关联的所有交易记录
+ * @param holdingId holdings 表中的记录 ID（兼容性参数，实际不使用）
+ * @param fundCode 基金代码，用于定位要删除的交易记录
+ */
+export async function removeHoldingWithTransactions(holdingId: string, fundCode?: string): Promise<void> {
   if (!isSupabaseConfigured()) return;
 
-  const { data: holding } = await supabase
-    .from('holdings')
-    .select('fund_code')
-    .eq('id', holdingId)
-    .limit(1)
-    .maybeSingle();
+  // 如果提供了 fundCode，直接使用；否则从 holdings 表查询（向后兼容）
+  let targetFundCode = fundCode;
+  if (!targetFundCode) {
+    const { data: holding } = await supabase
+      .from('holdings')
+      .select('fund_code')
+      .eq('id', holdingId)
+      .limit(1)
+      .maybeSingle();
 
-  if (!holding) return;
+    if (!holding) return;
+    targetFundCode = holding.fund_code;
+  }
 
+  // 删除该基金的所有交易记录
+  await supabase.from('transactions').delete().eq('fund_code', targetFundCode);
+  // 删除 holdings 表中的对应记录（兼容性）
   await supabase.from('holdings').delete().eq('id', holdingId);
-  await supabase.from('transactions').delete().eq('fund_code', holding.fund_code);
 }
 
 // ============================================
@@ -461,10 +492,21 @@ export interface ProcessPendingResult {
   errors: string[];
 }
 
+/**
+ * 处理在途交易
+ * 使用全局标记避免多页面重复调用
+ */
 export async function processPendingTransactions(): Promise<ProcessPendingResult> {
-  if (!isSupabaseConfigured()) {
+  // 防止多页面/多组件重复调用
+  if ((window as any).__pendingTransactionsProcessing) {
     return { processedCount: 0, pendingCount: 0, errors: [] };
   }
+  (window as any).__pendingTransactionsProcessing = true;
+
+  try {
+    if (!isSupabaseConfigured()) {
+      return { processedCount: 0, pendingCount: 0, errors: [] };
+    }
 
   const { data: pendingTransactions } = await supabase
     .from('transactions')
@@ -558,4 +600,8 @@ export async function processPendingTransactions(): Promise<ProcessPendingResult
     pendingCount: pendingTransactions.length - processedCount,
     errors,
   };
+  } finally {
+    // 处理完成后重置标记，允许下次调用
+    (window as any).__pendingTransactionsProcessing = false;
+  }
 }

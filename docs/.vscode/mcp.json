@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "qveris": {
+      "command": "npx",
+      "args": [
+        "@qverisai/mcp"
+      ],
+      "env": {
+        "QVERIS_API_KEY": "sk-ihp_GEO4O_j7wtTroyGR1uOf_DFFaxdfbAfjaMrpywc"
+      }
+    }
+  }
+}

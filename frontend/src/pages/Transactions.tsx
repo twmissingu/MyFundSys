@@ -7,28 +7,8 @@ import { addTransactionWithHoldingUpdate, processPendingTransactions, canDeleteT
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { searchByCode, fetchFundNav, fetchFundHistory } from '../services/fundApi';
 import type { FundSearchResult } from '../types';
-import { formatMoney, formatDate } from '../utils';
+import { formatMoney, formatDate, isTradeDay, getNextTradeDay } from '../utils';
 import './Layout.css';
-
-/**
- * 判断是否为交易日（周一至周五，不考虑节假日）
- */
-function isTradeDay(date: Date): boolean {
-  const day = date.getDay();
-  return day !== 0 && day !== 6; // 0=周日, 6=周六
-}
-
-/**
- * 获取下一个交易日
- */
-function getNextTradeDay(date: Date): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + 1);
-  while (!isTradeDay(next)) {
-    next.setDate(next.getDate() + 1);
-  }
-  return next;
-}
 
 const Transactions: React.FC = () => {
   // 解析 hash 中的查询参数

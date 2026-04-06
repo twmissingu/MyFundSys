@@ -1,8 +1,5 @@
-import React, { useState } from 'react';
-import { Card, List, Button, Toast, Dialog, Tag } from 'antd-mobile';
-import { DownlandOutline, UploadOutline } from 'antd-mobile-icons';
-import { useHoldings, useTransactions } from '../hooks/useSync';
-import { formatMoney, formatDate } from '../utils';
+import { Toast } from 'antd-mobile';
+import { formatDate } from '../utils';
 import type { Holding, Transaction } from '../types';
 
 // CSV 导出函数
@@ -90,6 +87,14 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+// 格式化日期为 YYYY-MM-DD 格式（避免时区问题）
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 导出持仓数据
 export function exportHoldingsToCSV(holdings: Holding[]) {
   const data = holdings.map(h => ({
@@ -103,7 +108,7 @@ export function exportHoldingsToCSV(holdings: Holding[]) {
     '盈亏比例': h.profitRate ? `${(h.profitRate * 100).toFixed(2)}%` : '',
   }));
   
-  exportToCSV(data, `持仓数据_${formatDate(new Date().toISOString())}.csv`);
+  exportToCSV(data, `持仓数据_${formatLocalDate(new Date())}.csv`);
 }
 
 // 导出交易记录
@@ -120,5 +125,79 @@ export function exportTransactionsToCSV(transactions: Transaction[]) {
     '备注': t.remark || '',
   }));
   
-  exportToCSV(data, `交易记录_${formatDate(new Date().toISOString())}.csv`);
+  exportToCSV(data, `交易记录_${formatLocalDate(new Date())}.csv`);
+}
+
+// ============================================
+// CSV 导入（与导出格式一致）
+// ============================================
+
+/**
+ * 解析交易记录 CSV 文件
+ * @param csvText CSV 文件内容
+ * @returns 交易记录数组（需调用 saveTransaction 保存到数据库）
+ * @throws CSV 格式错误时抛出异常
+ */
+export function importTransactionsFromCSV(csvText: string): Omit<Transaction, 'id' | 'createdAt'>[] {
+  const rows = parseCSV(csvText);
+  if (rows.length === 0) {
+    throw new Error('CSV 文件为空');
+  }
+
+  // 验证表头
+  const requiredHeaders = ['日期', '基金代码', '基金名称', '类型', '金额', '价格', '份额'];
+  const actualHeaders = Object.keys(rows[0]);
+  const missingHeaders = requiredHeaders.filter(h => !actualHeaders.includes(h));
+  if (missingHeaders.length > 0) {
+    throw new Error(`CSV 格式错误，缺少字段: ${missingHeaders.join(', ')}`);
+  }
+
+  const transactions: Omit<Transaction, 'id' | 'createdAt'>[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNumber = i + 2; // +2 因为表头在第 1 行，索引从 0 开始
+
+    // 验证必填字段
+    if (!row['日期'] || !row['基金代码'] || !row['基金名称']) {
+      throw new Error(`第 ${rowNumber} 行: 日期、基金代码、基金名称为必填项`);
+    }
+
+    // 解析类型
+    const typeStr = String(row['类型']).trim();
+    let type: 'buy' | 'sell';
+    if (typeStr === '买入') {
+      type = 'buy';
+    } else if (typeStr === '卖出') {
+      type = 'sell';
+    } else {
+      throw new Error(`第 ${rowNumber} 行: 类型必须为"买入"或"卖出"`);
+    }
+
+    // 解析数值
+    const amount = parseFloat(row['金额']);
+    const price = parseFloat(row['价格']);
+    const shares = parseFloat(row['份额']);
+    const fee = row['手续费'] ? parseFloat(row['手续费']) : 0;
+
+    if (isNaN(amount) || isNaN(price) || isNaN(shares)) {
+      throw new Error(`第 ${rowNumber} 行: 金额、价格、份额必须为有效数字`);
+    }
+
+    transactions.push({
+      fundId: String(row['基金代码']).trim(),
+      fundCode: String(row['基金代码']).trim(),
+      fundName: String(row['基金名称']).trim(),
+      type,
+      date: String(row['日期']).trim(),
+      amount,
+      price,
+      shares,
+      fee,
+      remark: row['备注'] ? String(row['备注']).trim() : undefined,
+      status: 'completed',
+    });
+  }
+
+  return transactions;
 }

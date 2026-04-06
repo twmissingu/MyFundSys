@@ -6,65 +6,24 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 // ============================================
-// 类型定义
+// 类型定义（与实际数据库表结构匹配）
 // ============================================
 
+/**
+ * 收藏基金（对应 favorite_funds 表）
+ */
 export interface FavoriteFund {
-  id: string;
-  code: string;
-  name: string;
+  id?: string;
+  fund_code: string;
+  fund_name: string;
   category?: string;
-  createdAt: string;
+  created_at?: string;
 }
 
-export interface FundCacheItem {
-  id: string;
-  code: string;
-  name: string;
-  category?: string;
-  nav?: number;
-  navDate?: string;
-  dailyChangeRate?: number;
-  accNav?: number;
-  pe?: number;
-  pb?: number;
-  dividendYield?: number;
-  source: 'search' | 'import' | 'system';
-  isHolding: boolean;
-  holdingShares: number;
-  searchCount: number;
-  lastUpdated: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ScheduledTask {
-  id?: number;
-  name: string;
-  type: 'fetch_nav' | 'generate_report' | 'feishu_notify';
-  enabled: boolean;
-  schedule: string;
-  config: any;
-  lastRunAt?: string;
-  nextRunAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface FeishuConfig {
-  id?: number;
-  webhookUrl: string;
-  secret?: string;
-  enabled: boolean;
-  notifyOn: {
-    dailyReport: boolean;
-    weeklyReport: boolean;
-    largeFluctuation: boolean;
-    transactionAdded: boolean;
-  };
-  createdAt: string;
-  updatedAt: string;
-}
+// 移除未使用的类型定义（这些接口未在代码中使用）
+// export interface FundCacheItem { ... }  // 未使用
+// export interface ScheduledTask { ... } // 未使用
+// export interface FeishuConfig { ... }  // 未使用
 
 // ============================================
 // Supabase 数据操作（替代原 IndexedDB 操作）
