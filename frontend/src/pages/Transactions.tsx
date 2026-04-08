@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Card, List, Tabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading, Picker } from 'antd-mobile';
-import { AddOutline } from 'antd-mobile-icons';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Card, List, CapsuleTabs, Tag, Toast, SwipeAction, Dialog, Button, Form, Input, SearchBar, SpinLoading } from 'antd-mobile';
+import { AddOutline, CloseOutline } from 'antd-mobile-icons';
 
 import { useTransactions, useHoldings } from '../hooks/useSync';
 import { addTransactionWithHoldingUpdate, processPendingTransactions, canDeleteTransaction } from '../services/navUpdateService';
@@ -10,52 +10,84 @@ import type { FundSearchResult } from '../types';
 import { formatMoney, formatDate, isTradeDay, getNextTradeDay } from '../utils';
 import './Layout.css';
 
+type FilterKey = 'all' | 'buy' | 'sell' | 'pending';
+
+interface FundOption {
+  code: string;
+  name: string;
+}
+
 const Transactions: React.FC = () => {
-  // 解析 hash 中的查询参数
-  const getFundCodeFromHash = () => {
+  const parseHash = () => {
     const hash = window.location.hash;
-    const match = hash.match(/\?fundCode=([^&]+)/);
-    return match ? match[1] : null;
+    const queryString = hash.includes('?') ? hash.split('?')[1] : '';
+    const params = new URLSearchParams(queryString);
+    return {
+      type: (params.get('type') as FilterKey) || 'all',
+      fundCode: params.get('fundCode') || null,
+    };
   };
-  
-  const [fundCodeFromUrl, setFundCodeFromUrl] = useState<string | null>(getFundCodeFromHash());
-  
-  const [activeType, setActiveType] = useState('all');
-  const [activeStatus, setActiveStatus] = useState<'all' | 'pending' | 'completed'>('all');
-  const [selectedFundCode, setSelectedFundCode] = useState<string>(fundCodeFromUrl || 'all');
-  const [showFundPicker, setShowFundPicker] = useState(false);
+
+  const initialParams = parseHash();
+
+  const [filterKey, setFilterKey] = useState<FilterKey>(initialParams.type);
+  const [selectedFundCode, setSelectedFundCode] = useState<string>(initialParams.fundCode || 'all');
   const { transactions, loading, saveTransaction, removeTransaction, refresh } = useTransactions();
   const { refresh: refreshHoldings } = useHoldings();
-  
-  // 监听 hash 变化
+
   useEffect(() => {
     const handleHashChange = () => {
-      const newFundCode = getFundCodeFromHash();
-      setFundCodeFromUrl(newFundCode);
-      setSelectedFundCode(newFundCode || 'all');
+      const params = parseHash();
+      setFilterKey(params.type);
+      setSelectedFundCode(params.fundCode || 'all');
     };
-    
+
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
+
+  const updateHash = (type: FilterKey, fundCode: string) => {
+    const params = new URLSearchParams();
+    if (type !== 'all') params.set('type', type);
+    if (fundCode !== 'all') params.set('fundCode', fundCode);
+    const query = params.toString();
+    window.location.hash = query ? `#transactions?${query}` : '#transactions';
+  };
+
+  const handleFilterChange = (key: string) => {
+    const newKey = key as FilterKey;
+    setFilterKey(newKey);
+    updateHash(newKey, selectedFundCode);
+  };
+
+  const handleFundSelect = (code: string) => {
+    setSelectedFundCode(code);
+    updateHash(filterKey, code);
+  };
+
+  const clearFundFilter = () => {
+    setSelectedFundCode('all');
+    updateHash(filterKey, 'all');
+  };
+
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [form] = Form.useForm();
   const [dialogDate, setDialogDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  
-  // 基金代码搜索相关状态
+
   const [codeSearchText, setCodeSearchText] = useState('');
   const [codeSearchResults, setCodeSearchResults] = useState<FundSearchResult[]>([]);
   const [isCodeSearching, setIsCodeSearching] = useState(false);
   const [selectedFund, setSelectedFund] = useState<FundSearchResult | null>(null);
-  
-  // 当前交易类型和基金净值
+
   const [currentTradeType, setCurrentTradeType] = useState<'buy' | 'sell'>('buy');
   const [currentNav, setCurrentNav] = useState<number | null>(null);
   const [selectedDateNav, setSelectedDateNav] = useState<{ nav: number; date: string } | null>(null);
   const [isDateNavLoading, setIsDateNavLoading] = useState(false);
   const [isPendingNav, setIsPendingNav] = useState(false);
 
-  // 防抖搜索基金代码
+  const [fundSearchText, setFundSearchText] = useState('');
+  const [showFundDropdown, setShowFundDropdown] = useState(false);
+
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (codeSearchText.trim().length >= 4) {
@@ -75,16 +107,14 @@ const Transactions: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [codeSearchText]);
-  
-  // 选择基金
+
   const handleSelectFund = (fund: FundSearchResult) => {
     setSelectedFund(fund);
     setCodeSearchText(fund.code);
     setCodeSearchResults([]);
     form.setFieldsValue({ fundCode: fund.code });
   };
-  
-  // 重置搜索
+
   const resetSearch = () => {
     setCodeSearchText('');
     setCodeSearchResults([]);
@@ -94,16 +124,13 @@ const Transactions: React.FC = () => {
     setIsPendingNav(false);
     form.setFieldsValue({ fundCode: undefined, amount: undefined, shares: undefined, fee: undefined });
   };
-  
-  // 监听交易类型变化
+
   const handleTradeTypeChange = (type: 'buy' | 'sell') => {
     setCurrentTradeType(type);
     form.setFieldsValue({ type });
-    // 重置相关字段
     form.setFieldsValue({ amount: undefined, shares: undefined, fee: undefined });
   };
-  
-  // 获取基金净值（最新净值）
+
   useEffect(() => {
     const fetchNav = async () => {
       if (selectedFund?.code) {
@@ -120,7 +147,6 @@ const Transactions: React.FC = () => {
     fetchNav();
   }, [selectedFund]);
 
-  // 监听对话框日期变化，获取该日期的净值
   useEffect(() => {
     if (!dialogDate || !selectedFund?.code) {
       setSelectedDateNav(null);
@@ -131,7 +157,7 @@ const Transactions: React.FC = () => {
 
     const fetchDateNav = async () => {
       const today = new Date().toISOString().split('T')[0];
-      
+
       if (dialogDate === today) {
         if (!isTradeDay(new Date())) {
           setIsPendingNav(true);
@@ -188,9 +214,7 @@ const Transactions: React.FC = () => {
     return () => { cancelled = true; };
   }, [dialogDate, selectedFund?.code, currentNav]);
 
-  // 当净值数据更新时，自动重新计算份额/金额
   useEffect(() => {
-    // 如果在途状态，清空计算结果
     if (isPendingNav) {
       form.setFieldsValue({ shares: undefined, amount: undefined });
       return;
@@ -211,47 +235,37 @@ const Transactions: React.FC = () => {
     }
   }, [selectedDateNav, currentNav, currentTradeType, form, isPendingNav]);
 
-  // 从交易记录中提取所有唯一的基金代码（用于筛选）
-  const uniqueFundCodes = Array.from(new Set(transactions.map(t => t.fundCode)));
-  
-  // 准备 Picker 选项（只显示基金名称，更简洁）
-  const fundPickerColumns = [
-    [
-      { label: '全部基金', value: 'all' },
-      ...uniqueFundCodes.map(code => {
-        const fundName = transactions.find(t => t.fundCode === code)?.fundName || code;
-        return { label: fundName, value: code };
-      }),
-    ],
-  ];
-  
-  // 当前选中的基金显示文本
-  const selectedFundLabel = selectedFundCode === 'all' 
-    ? '全部基金' 
-    : (transactions.find(t => t.fundCode === selectedFundCode)?.fundName || selectedFundCode);
-  
-  // 清除基金筛选，返回全部
-  const clearFundFilter = () => {
-    setSelectedFundCode('all');
-    window.location.hash = '#transactions';
-  };
+  const fundOptions = useMemo<FundOption[]>(() => {
+    const uniqueCodes = Array.from(new Set(transactions.map(t => t.fundCode)));
+    return uniqueCodes.map(code => ({
+      code,
+      name: transactions.find(t => t.fundCode === code)?.fundName || code,
+    }));
+  }, [transactions]);
 
-  // 筛选交易记录
-  const filteredTransactions = transactions.filter(t => {
-    // 按类型筛选
-    if (activeType !== 'all' && t.type !== activeType) return false;
-    // 按状态筛选
-    if (activeStatus !== 'all' && t.status !== activeStatus) return false;
-    // 按基金代码筛选
-    if (selectedFundCode !== 'all' && t.fundCode !== selectedFundCode) return false;
-    return true;
-  });
-  
-  // 获取在途交易数量
-  const pendingCount = transactions.filter(t => t.status === 'pending').length;
+  const filteredFundOptions = useMemo(() => {
+    if (!fundSearchText.trim()) return fundOptions;
+    const keyword = fundSearchText.trim().toLowerCase();
+    return fundOptions.filter(f =>
+      f.name.toLowerCase().includes(keyword) || f.code.includes(keyword)
+    );
+  }, [fundOptions, fundSearchText]);
+
+  const selectedFundName = selectedFundCode === 'all'
+    ? ''
+    : (transactions.find(t => t.fundCode === selectedFundCode)?.fundName || selectedFundCode);
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      if (filterKey === 'pending') return t.status === 'pending';
+      if (filterKey === 'buy') return t.type === 'buy' && t.status === 'completed';
+      if (filterKey === 'sell') return t.type === 'sell' && t.status === 'completed';
+      if (selectedFundCode !== 'all' && t.fundCode !== selectedFundCode) return false;
+      return true;
+    });
+  }, [transactions, filterKey, selectedFundCode]);
 
   const handleDelete = async (id: string) => {
-    // 验证是否可以删除
     const checkResult = canDeleteTransaction(transactions, id);
     if (!checkResult.canDelete) {
       Toast.show({ content: checkResult.reason || '无法删除', position: 'bottom', duration: 5000 });
@@ -273,7 +287,6 @@ const Transactions: React.FC = () => {
     });
   };
 
-  // 进入页面时自动处理在途交易
   useEffect(() => {
     processPendingTransactions().then((result) => {
       if (result.processedCount > 0) {
@@ -289,13 +302,11 @@ const Transactions: React.FC = () => {
 
   const handleAddTransaction = async (values: any) => {
     try {
-      // 使用已选择的基金（用户在搜索框中选择的）
       if (!selectedFund) {
         Toast.show({ content: '请先选择基金', position: 'bottom' });
         return;
       }
 
-      // 自动收藏基金（如果未收藏）
       if (isSupabaseConfigured()) {
         const { data: existing } = await supabase
           .from('favorite_funds')
@@ -312,33 +323,28 @@ const Transactions: React.FC = () => {
         }
       }
 
-      // 优先使用已获取的日期净值
       const tradeDate = new Date(values.date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       tradeDate.setHours(0, 0, 0, 0);
       const actualTradeDay = isTradeDay(tradeDate) ? tradeDate : getNextTradeDay(tradeDate);
-      
+
       let tradePrice: number | null = null;
       let isPending = false;
-      
-      // 优先使用已获取的日期净值
+
       if (selectedDateNav && selectedDateNav.date === values.date) {
         tradePrice = selectedDateNav.nav;
       }
-      
-      // 如果没有，尝试获取
+
       if (!tradePrice) {
         const isHistoricalDate = actualTradeDay < today;
-        
+
         if (isHistoricalDate) {
           try {
-            // 先尝试精确匹配
             let historyData = await fetchFundHistory(selectedFund.code, 1, 1, values.date, values.date);
             if (historyData.length > 0) {
               tradePrice = historyData[0].nav;
             } else {
-              // 精确匹配失败（非交易日）：查找下一交易日净值
               const nextData = await fetchFundHistory(selectedFund.code, 5, 1, values.date, '');
               if (nextData.length > 0) {
                 const nextRecord = nextData[nextData.length - 1];
@@ -351,7 +357,6 @@ const Transactions: React.FC = () => {
             console.error('获取历史净值失败:', error);
           }
         } else {
-          // 今天或未来：检查是否是交易日
           if (!isTradeDay(tradeDate)) {
             isPending = true;
           } else {
@@ -364,7 +369,7 @@ const Transactions: React.FC = () => {
                 console.log('无法获取净值');
               }
             }
-            
+
             const isAfterNavTime = new Date().getHours() >= 21;
             if (actualTradeDay > today) {
               isPending = true;
@@ -374,25 +379,22 @@ const Transactions: React.FC = () => {
           }
         }
       }
-      
+
       if (!tradePrice || tradePrice <= 0) {
         isPending = true;
       }
-      
+
       const confirmDate = actualTradeDay.toISOString().split('T')[0];
-      
-      // 根据交易类型计算份额和金额
+
       let shares: number;
       let amount: number;
       let finalPrice: number;
-      
+
       if (values.type === 'buy') {
-        // 买入：输入金额，计算份额（如果在途，份额先设为0）
         amount = Number(values.amount);
         shares = isPending ? 0 : amount / (tradePrice || 1);
         finalPrice = isPending ? 0 : (tradePrice || 0);
       } else {
-        // 卖出：输入份额，计算金额（如果在途，金额先设为0）
         shares = Number(values.shares);
         amount = isPending ? 0 : shares * (tradePrice || 0);
         finalPrice = isPending ? 0 : (tradePrice || 0);
@@ -436,39 +438,44 @@ const Transactions: React.FC = () => {
     }
   };
 
-  // 按日期分组
-  const groupedTransactions = filteredTransactions.reduce((groups, t) => {
-    const date = t.date;
-    if (!groups[date]) {
-      groups[date] = [];
-    }
-    groups[date].push(t);
-    return groups;
-  }, {} as Record<string, typeof transactions>);
+  const groupedTransactions = useMemo(() => {
+    return filteredTransactions.reduce((groups, t) => {
+      const date = t.date;
+      if (!groups[date]) {
+        groups[date] = [];
+      }
+      groups[date].push(t);
+      return groups;
+    }, {} as Record<string, typeof transactions>);
+  }, [filteredTransactions]);
 
-  const sortedDates = Object.keys(groupedTransactions).sort((a, b) => 
-    new Date(b).getTime() - new Date(a).getTime()
-  );
+  const sortedDates = useMemo(() =>
+    Object.keys(groupedTransactions).sort((a, b) =>
+      new Date(b).getTime() - new Date(a).getTime()
+    ), [groupedTransactions]);
+
+  const hasActiveFilter = selectedFundCode !== 'all';
+
+  const getEmptyStateText = () => {
+    if (filterKey !== 'all' && !hasActiveFilter) {
+      const labels: Record<FilterKey, string> = {
+        all: '',
+        buy: '买入',
+        sell: '卖出',
+        pending: '在途',
+      };
+      return `暂无${labels[filterKey]}交易记录`;
+    }
+    if (hasActiveFilter) {
+      return `${selectedFundName} 暂无匹配的交易记录`;
+    }
+    return '暂无交易记录';
+  };
 
   return (
     <div className="page-container">
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-        {fundCodeFromUrl && (
-          <Button
-            size='small'
-            fill='none'
-            onClick={clearFundFilter}
-            style={{ marginRight: 8, padding: '4px 8px' }}
-          >
-            ← 返回全部
-          </Button>
-        )}
-        <h1 className="page-title" style={{ margin: 0 }}>
-          {fundCodeFromUrl ? `${selectedFundLabel} 的交易` : '交易记录'}
-        </h1>
-      </div>
+      <h1 className="page-title" style={{ marginBottom: 16 }}>交易记录</h1>
 
-      {/* 添加交易按钮 */}
       <Button
         block
         color="primary"
@@ -481,95 +488,149 @@ const Transactions: React.FC = () => {
         <AddOutline /> 添加交易
       </Button>
 
-      <Tabs
-        activeKey={activeStatus}
-        onChange={(key) => setActiveStatus(key as 'all' | 'pending' | 'completed')}
+      <CapsuleTabs
+        activeKey={filterKey}
+        onChange={handleFilterChange}
         style={{ marginBottom: 12 }}
       >
-        <Tabs.Tab title="全部交易" key="all" />
-        <Tabs.Tab 
-          title={pendingCount > 0 ? `在途 (${pendingCount})` : '在途'} 
-          key="pending" 
-        />
-        <Tabs.Tab title="已完成" key="completed" />
-      </Tabs>
+        <CapsuleTabs.Tab title="全部" key="all" />
+        <CapsuleTabs.Tab title="买入" key="buy" />
+        <CapsuleTabs.Tab title="卖出" key="sell" />
+        <CapsuleTabs.Tab title="在途" key="pending" />
+      </CapsuleTabs>
 
-      <Tabs
-        activeKey={activeType}
-        onChange={setActiveType}
-        style={{ marginBottom: 12 }}
-      >
-        <Tabs.Tab title="全部" key="all" />
-        <Tabs.Tab title="买入" key="buy" />
-        <Tabs.Tab title="卖出" key="sell" />
-      </Tabs>
+      {fundOptions.length > 0 && (
+        <div style={{ marginBottom: 12, position: 'relative' }}>
+          <SearchBar
+            placeholder="搜索基金名称或代码"
+            value={fundSearchText}
+            onChange={(val) => {
+              setFundSearchText(val);
+              setShowFundDropdown(val.length > 0);
+            }}
+            onFocus={() => {
+              if (fundSearchText) setShowFundDropdown(true);
+            }}
+            onBlur={() => {
+              setTimeout(() => setShowFundDropdown(false), 200);
+            }}
+            style={{ '--background': '#f5f5f5' }}
+          />
+          {showFundDropdown && filteredFundOptions.length > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                maxHeight: '200px',
+                overflowY: 'auto',
+                background: '#fff',
+                border: '1px solid #f0f0f0',
+                borderRadius: '0 0 8px 8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                zIndex: 100,
+              }}
+            >
+              {filteredFundOptions.map((fund) => (
+                <div
+                  key={fund.code}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleFundSelect(fund.code);
+                    setFundSearchText('');
+                    setShowFundDropdown(false);
+                  }}
+                  style={{
+                    padding: '10px 16px',
+                    borderBottom: '1px solid #f5f5f5',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{fund.name}</div>
+                  <div style={{ fontSize: 12, color: '#999' }}>{fund.code}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {showFundDropdown && fundSearchText && filteredFundOptions.length === 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                padding: '12px',
+                textAlign: 'center',
+                background: '#fff',
+                border: '1px solid #f0f0f0',
+                borderRadius: '0 0 8px 8px',
+                color: '#999',
+                fontSize: 13,
+                zIndex: 100,
+              }}
+            >
+              无匹配的基金
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* 基金代码筛选 - 使用 Picker 滚轮选择 */}
-      {(uniqueFundCodes.length > 0 || fundCodeFromUrl) && (
-        <div style={{ marginBottom: 12 }}>
-          <Button
-            fill='outline'
-            size='small'
-            onClick={() => setShowFundPicker(true)}
+      {hasActiveFilter && (
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div
             style={{
-              width: '100%',
-              justifyContent: 'space-between',
-              padding: '8px 12px',
-              borderRadius: 8,
-              border: '1px solid #e0e0e0',
-              background: '#fff',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '4px 8px',
+              borderRadius: 4,
+              background: '#e6f4ff',
+              color: '#1677ff',
+              fontSize: 13,
             }}
           >
-            <span style={{ 
-              color: selectedFundCode === 'all' ? '#999' : '#333',
-              fontSize: 14,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              maxWidth: 'calc(100% - 40px)',
-            }}>
-              {selectedFundLabel}
-            </span>
-            <span style={{ color: '#1677ff', fontSize: 13, flexShrink: 0 }}>
-              选择基金 ▼
-            </span>
-          </Button>
-          
-          <Picker
-            visible={showFundPicker}
-            columns={fundPickerColumns}
-            value={[selectedFundCode]}
-            onConfirm={(val) => {
-              setSelectedFundCode(val[0] as string);
-              setShowFundPicker(false);
-              // 更新 URL 参数
-              if (val[0] === 'all') {
-                window.location.hash = '#transactions';
-              } else {
-                window.location.hash = `#transactions?fundCode=${val[0]}`;
-              }
-            }}
-            onCancel={() => setShowFundPicker(false)}
-          />
+            <span>{selectedFundName}</span>
+            <CloseOutline
+              onClick={clearFundFilter}
+              style={{ fontSize: 14, cursor: 'pointer' }}
+            />
+          </div>
         </div>
       )}
 
       <Card className="card">
         {filteredTransactions.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            {fundCodeFromUrl 
-              ? `${selectedFundLabel} 暂无交易记录`
-              : '暂无交易记录'
-            }
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#999' }}>
+            <div style={{ fontSize: 14, marginBottom: 16 }}>{getEmptyStateText()}</div>
+            {!hasActiveFilter && filterKey === 'all' && (
+              <Button
+                size="small"
+                color="primary"
+                fill="outline"
+                onClick={() => setShowAddDialog(true)}
+              >
+                <AddOutline /> 添加第一笔交易
+              </Button>
+            )}
+            {hasActiveFilter && (
+              <Button
+                size="small"
+                fill="outline"
+                onClick={clearFundFilter}
+              >
+                清除筛选
+              </Button>
+            )}
           </div>
         ) : (
           <div>
             {sortedDates.map(date => (
               <div key={date}>
-                <div 
-                  style={{ 
-                    padding: '8px 0', 
-                    fontSize: 14, 
+                <div
+                  style={{
+                    padding: '8px 0',
+                    fontSize: 14,
                     fontWeight: 500,
                     color: '#666',
                     borderBottom: '1px solid #f0f0f0'
@@ -596,13 +657,13 @@ const Transactions: React.FC = () => {
                             <div style={{ fontSize: 15, fontWeight: 500 }}>
                               {transaction.fundName}
                             </div>
-                            <Tag 
+                            <Tag
                               style={{ marginLeft: 8, fontSize: 11, background: transaction.type === 'buy' ? '#fff1f0' : '#f6ffed', color: transaction.type === 'buy' ? '#ff4d4f' : '#52c41a', border: `1px solid ${transaction.type === 'buy' ? '#ffa39e' : '#b7eb8f'}` }}
                             >
                               {transaction.type === 'buy' ? '买入' : '卖出'}
                             </Tag>
                             {transaction.status === 'pending' && (
-                              <Tag 
+                              <Tag
                                 color="warning"
                                 style={{ marginLeft: 8, fontSize: 11 }}
                               >
@@ -613,9 +674,9 @@ const Transactions: React.FC = () => {
                         }
                         description={
                           <div style={{ fontSize: 13, color: '#999' }}>
-                            {transaction.fundCode} 
-                            {transaction.status === 'pending' 
-                              ? ' | 等待净值确认' 
+                            {transaction.fundCode}
+                            {transaction.status === 'pending'
+                              ? ' | 等待净值确认'
                               : ` | 价格: ${transaction.price.toFixed(4)}`
                             }
                           </div>
@@ -623,14 +684,14 @@ const Transactions: React.FC = () => {
                         extra={
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: 15, fontWeight: 500 }}>
-                              {transaction.status === 'pending' 
+                              {transaction.status === 'pending'
                                 ? (transaction.type === 'buy' ? `¥${transaction.amount.toFixed(2)}` : `${transaction.shares.toFixed(2)}份`)
                                 : formatMoney(transaction.amount)
                               }
                             </div>
                             <div style={{ fontSize: 13, color: '#999' }}>
-                              {transaction.status === 'pending' 
-                                ? '待确认' 
+                              {transaction.status === 'pending'
+                                ? '待确认'
                                 : `${transaction.shares.toFixed(2)} 份`
                               }
                             </div>
@@ -650,7 +711,6 @@ const Transactions: React.FC = () => {
         共 {filteredTransactions.length} 条记录
       </div>
 
-      {/* 添加交易对话框 */}
       <Dialog
         visible={showAddDialog}
         title="添加交易"
@@ -667,7 +727,6 @@ const Transactions: React.FC = () => {
             layout="vertical"
             onFinish={handleAddTransaction}
           >
-            {/* 基金代码搜索 */}
             <Form.Item
               name="fundCode"
               label="基金代码"
@@ -676,10 +735,10 @@ const Transactions: React.FC = () => {
             >
               <div>
                 {selectedFund ? (
-                  <div 
-                    style={{ 
-                      padding: '8px 12px', 
-                      background: '#f0f7ff', 
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      background: '#f0f7ff',
                       borderRadius: '4px',
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -716,7 +775,7 @@ const Transactions: React.FC = () => {
                         }}
                       >
                         {codeSearchResults
-                          .filter((fund, index, self) => 
+                          .filter((fund, index, self) =>
                             index === self.findIndex(f => f.code === fund.code)
                           )
                           .map((fund) => (
@@ -805,7 +864,6 @@ const Transactions: React.FC = () => {
               }} />
             </Form.Item>
 
-            {/* 净值预览卡片 */}
             {(selectedDateNav || isPendingNav || isDateNavLoading) && (
               <div
                 style={{
@@ -841,12 +899,12 @@ const Transactions: React.FC = () => {
                   ]}
                   help={isPendingNav
                     ? '在途交易，净值待定'
-                    : isDateNavLoading 
-                      ? '正在获取净值...' 
-                      : selectedDateNav 
-                        ? `使用净值: ${selectedDateNav.nav.toFixed(4)}` 
-                        : currentNav 
-                          ? `使用当前净值: ${currentNav.toFixed(4)}` 
+                    : isDateNavLoading
+                      ? '正在获取净值...'
+                      : selectedDateNav
+                        ? `使用净值: ${selectedDateNav.nav.toFixed(4)}`
+                        : currentNav
+                          ? `使用当前净值: ${currentNav.toFixed(4)}`
                           : ''}
                 >
                   <Input
@@ -883,12 +941,12 @@ const Transactions: React.FC = () => {
                   ]}
                   help={isPendingNav
                     ? '在途交易，净值待定'
-                    : isDateNavLoading 
-                      ? '正在获取净值...' 
-                      : selectedDateNav 
-                        ? `使用净值: ${selectedDateNav.nav.toFixed(4)}` 
-                        : currentNav 
-                          ? `使用当前净值: ${currentNav.toFixed(4)}` 
+                    : isDateNavLoading
+                      ? '正在获取净值...'
+                      : selectedDateNav
+                        ? `使用净值: ${selectedDateNav.nav.toFixed(4)}`
+                        : currentNav
+                          ? `使用当前净值: ${currentNav.toFixed(4)}`
                           : ''}
                 >
                   <Input
