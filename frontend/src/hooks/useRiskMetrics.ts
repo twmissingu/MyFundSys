@@ -1,34 +1,21 @@
 import { useMemo } from 'react';
-import { useHoldings } from './useSync';
 import { useGridStrategies } from './useGrid';
 
 export interface RiskMetrics {
-  totalAssets: number;
-  deploymentRate: number;
-  top3Concentration: number;
-  valuationSignal: '低估' | '合理' | '高估' | null;
-  pendingCount: number;
   gridTriggeredCount: number;
-  loading: boolean;
+  valuationSignal: '低估' | '合理' | '高估' | null;
 }
 
-export function useRiskMetrics(pendingCount: number = 0, valuationPercentile?: number | null): RiskMetrics {
-  const { holdings, loading: holdingsLoading } = useHoldings();
-  const { overviews, loading: gridLoading } = useGridStrategies();
+/**
+ * 风险指标 Hook。
+ * 仅返回 Dashboard 实际消费的两个指标（gridTriggeredCount、valuationSignal）。
+ * 此前的 totalAssets/deploymentRate/top3Concentration/pendingCount/loading 无调用方使用，
+ * 且 totalAssets 漏算 pendingBuyAmount（H1）——死计算已移除，不再保留误导性字段。
+ */
+export function useRiskMetrics(valuationPercentile?: number | null): RiskMetrics {
+  const { overviews } = useGridStrategies();
 
   return useMemo(() => {
-    const totalAssets = holdings.reduce(
-      (sum, h) => sum + (h.currentValue ?? h.totalCost), 0
-    );
-
-    const totalBudget = overviews.reduce((sum, o) => sum + o.total_budget, 0);
-    const capitalDeployed = overviews.reduce((sum, o) => sum + o.capital_deployed, 0);
-    const deploymentRate = totalBudget > 0 ? capitalDeployed / totalBudget : 0;
-
-    const values = holdings.map(h => h.currentValue ?? h.totalCost).sort((a, b) => b - a);
-    const top3Sum = values.slice(0, 3).reduce((a, b) => a + b, 0);
-    const top3Concentration = totalAssets > 0 ? top3Sum / totalAssets : 0;
-
     let valuationSignal: RiskMetrics['valuationSignal'] = null;
     if (valuationPercentile !== null && valuationPercentile !== undefined) {
       // 修复 #11：与 getValuationStatus 五档展示对齐
@@ -46,14 +33,6 @@ export function useRiskMetrics(pendingCount: number = 0, valuationPercentile?: n
       (sum, o) => sum + (o.triggered_pending_count || 0), 0
     );
 
-    return {
-      totalAssets,
-      deploymentRate,
-      top3Concentration,
-      valuationSignal,
-      pendingCount,
-      gridTriggeredCount,
-      loading: holdingsLoading || gridLoading,
-    };
-  }, [holdings, overviews, valuationPercentile, pendingCount, holdingsLoading, gridLoading]);
+    return { gridTriggeredCount, valuationSignal };
+  }, [overviews, valuationPercentile]);
 }

@@ -185,123 +185,123 @@ export interface ExecuteGridParams {
   buyExecutionId?: string;    // sell 用：指向买入的 grid_execution
 }
 
-export async function executeGrid(
+export async function executeGridBuy(
   params: ExecuteGridParams
 ): Promise<{ executionId: string; transactionId: string }> {
-  if (!isSupabaseConfigured()) {
-    throw new Error('Supabase 未配置');
+  if (!isSupabaseConfigured()) throw new Error('Supabase 未配置');
+  if (params.investmentAmount == null || params.investmentAmount <= 0) {
+    throw new Error('买入操作必须指定有效的 investmentAmount');
+  }
+  if (!params.currentNav || params.currentNav <= 0) {
+    throw new Error('当前净值为 0，无法计算买入份额');
   }
 
-  const { strategyId, fundCode, fundName, gridType, gridLevel, action, currentNav, buyExecutionId } = params;
   const today = new Date().toISOString().split('T')[0];
+  const investmentAmount = params.investmentAmount;
+  const shares = investmentAmount / params.currentNav;
+  const roundedShares = Math.round(shares * SHARE_PRECISION) / SHARE_PRECISION;
 
-  if (action === 'buy') {
-    if (params.investmentAmount == null || params.investmentAmount <= 0) {
-      throw new Error('买入操作必须指定有效的 investmentAmount');
+  const { transactionId } = await addTransactionWithHoldingUpdate({
+    fundId: params.fundCode,
+    fundCode: params.fundCode,
+    fundName: params.fundName,
+    type: 'buy',
+    date: today,
+    amount: investmentAmount,
+    price: params.currentNav,
+    shares: roundedShares,
+    fee: 0,
+    status: 'pending',
+    source: 'grid',
+  });
+
+  const { data, error } = await (supabase
+    .from('grid_executions') as any)
+    .insert({
+      strategy_id: params.strategyId,
+      fund_code: params.fundCode,
+      grid_type: params.gridType,
+      grid_level: params.gridLevel,
+      action: 'buy',
+      status: 'executed',
+      transaction_id: transactionId,
+      executed_nav: params.currentNav,
+      executed_amount: investmentAmount,
+      executed_shares: roundedShares,
+      remaining_shares: roundedShares,
+      executed_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`写入买入执行记录失败: ${error.message}`);
+
+  const executionId = (data as any).id;
+
+  try {
+    const { error: backfillError } = await (supabase
+      .from('transactions') as any)
+      .update({ grid_execution_id: executionId })
+      .eq('id', transactionId);
+    if (backfillError) {
+      console.warn(`回填 grid_execution_id 失败: ${backfillError.message}`);
     }
-    const investmentAmount = params.investmentAmount;
-    const shares = investmentAmount / currentNav;
-    const roundedShares = Math.round(shares * SHARE_PRECISION) / SHARE_PRECISION;
-
-    // 1. 创建买入交易记录
-    const { transactionId } = await addTransactionWithHoldingUpdate({
-      fundId: fundCode,
-      fundCode,
-      fundName,
-      type: 'buy',
-      date: today,
-      amount: investmentAmount,
-      price: currentNav,
-      shares: roundedShares,
-      fee: 0,
-      status: 'pending',
-      source: 'grid',
-    });
-
-    // 2. 写入 grid_executions（买入）
-    const { data, error } = await (supabase
-      .from('grid_executions') as any)
-      .insert({
-        strategy_id: strategyId,
-        fund_code: fundCode,
-        grid_type: gridType,
-        grid_level: gridLevel,
-        action: 'buy',
-        status: 'executed',
-        transaction_id: transactionId,
-        executed_nav: currentNav,
-        executed_amount: investmentAmount,
-        executed_shares: roundedShares,
-        remaining_shares: roundedShares,
-        executed_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`写入买入执行记录失败: ${error.message}`);
-    }
-
-    const executionId = (data as any).id;
-
-    // 3. 回填 grid_execution_id 到 transaction，确保 deriveLots 能精确匹配
-    // 该列可能未在 Supabase schema cache 中，回填失败不阻塞执行（回退到成本匹配）
-    try {
-      const { error: backfillError } = await (supabase
-        .from('transactions') as any)
-        .update({ grid_execution_id: executionId })
-        .eq('id', transactionId);
-      if (backfillError) {
-        console.warn(`回填 grid_execution_id 失败: ${backfillError.message}`);
-      }
-    } catch (e) {
-      console.warn(`回填 grid_execution_id 异常: ${e}`);
-    }
-
-    return { executionId, transactionId };
+  } catch (e) {
+    console.warn(`回填 grid_execution_id 异常: ${e}`);
   }
 
-  // action === 'sell'
-  if (!buyExecutionId) {
-    throw new Error('卖出操作必须指定 buyExecutionId');
-  }
+  return { executionId, transactionId };
+}
 
+export async function executeGridSell(
+  params: ExecuteGridParams
+): Promise<{ executionId: string; transactionId: string }> {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 未配置');
+  if (!params.buyExecutionId) throw new Error('卖出操作必须指定 buyExecutionId');
   if (params.sellShares == null || params.sellShares <= 0) {
     throw new Error('卖出操作必须指定有效的 sellShares');
   }
-  const sellShares = params.sellShares;
-  const sellAmount = sellShares * currentNav;
 
-  // 修复 A：服务层校验卖出份额不得超过买入 execution 的剩余份额，杜绝超卖。
-  // （此前仅 UI 调用方传 remaining_shares 做约束，服务层无防御；任何绕过 UI 的调用会静默超卖。）
+  const today = new Date().toISOString().split('T')[0];
+  const buyExecutionId = params.buyExecutionId;
+  const sellShares = params.sellShares;
+  const sellAmount = sellShares * params.currentNav;
+
   const { data: buyExecForCheck, error: buyCheckError } = await (supabase
     .from('grid_executions') as any)
-    .select('remaining_shares, executed_shares')
+    .select('remaining_shares, executed_shares, transaction_id')
     .eq('id', buyExecutionId)
     .maybeSingle();
-  if (buyCheckError) {
-    throw new Error(`查询买入执行记录失败: ${buyCheckError.message}`);
-  }
-  if (!buyExecForCheck) {
-    throw new Error('未找到对应的买入执行记录，无法卖出');
-  }
+  if (buyCheckError) throw new Error(`查询买入执行记录失败: ${buyCheckError.message}`);
+  if (!buyExecForCheck) throw new Error('未找到对应的买入执行记录，无法卖出');
+
   const availableShares = buyExecForCheck.remaining_shares != null
     ? Number(buyExecForCheck.remaining_shares)
     : Number(buyExecForCheck.executed_shares ?? 0);
-  // 容忍份额精度误差（1e-4）
   if (sellShares > availableShares + 1 / SHARE_PRECISION) {
     throw new Error(`卖出份额(${sellShares})超过该网格剩余可卖份额(${availableShares})`);
   }
 
-  // 1. 创建卖出交易记录（关联买入 execution）
+  const buyTxId = (buyExecForCheck as any).transaction_id;
+  if (!buyTxId) throw new Error('买入执行记录缺少关联交易，数据异常，无法校验卖出');
+
+  const { data: buyTx, error: buyTxError } = await (supabase
+    .from('transactions') as any)
+    .select('status')
+    .eq('id', buyTxId)
+    .maybeSingle();
+  if (buyTxError) throw new Error(`查询买入交易状态失败: ${buyTxError.message}`);
+  if (!buyTx) throw new Error('关联的买入交易不存在，无法校验卖出');
+  if (buyTx.status === 'pending') throw new Error('买入交易尚未确认，暂不能卖出');
+
   const { transactionId } = await addTransactionWithHoldingUpdate({
-    fundId: fundCode,
-    fundCode,
-    fundName,
+    fundId: params.fundCode,
+    fundCode: params.fundCode,
+    fundName: params.fundName,
     type: 'sell',
     date: today,
     amount: Math.round(sellAmount * 100) / 100,
-    price: currentNav,
+    price: params.currentNav,
     shares: Math.round(sellShares * SHARE_PRECISION) / SHARE_PRECISION,
     fee: 0,
     status: 'completed',
@@ -309,41 +309,45 @@ export async function executeGrid(
     gridExecutionId: buyExecutionId,
   });
 
-  // 2. 写入 grid_executions（卖出）
   const { data: sellExecData, error: sellError } = await (supabase
     .from('grid_executions') as any)
     .insert({
-      strategy_id: strategyId,
-      fund_code: fundCode,
-      grid_type: gridType,
-      grid_level: gridLevel,
+      strategy_id: params.strategyId,
+      fund_code: params.fundCode,
+      grid_type: params.gridType,
+      grid_level: params.gridLevel,
       action: 'sell',
       status: 'executed',
       transaction_id: transactionId,
-      executed_nav: currentNav,
+      executed_nav: params.currentNav,
       executed_shares: Math.round(sellShares * SHARE_PRECISION) / SHARE_PRECISION,
       executed_at: new Date().toISOString(),
     })
     .select()
     .single();
 
-  if (sellError) {
-    throw new Error(`写入卖出执行记录失败: ${sellError.message}`);
-  }
+  if (sellError) throw new Error(`写入卖出执行记录失败: ${sellError.message}`);
 
-  // 3. 更新买入 execution 的 remaining_shares（支持部分卖出）
-  // 复用上面校验时读到的 availableShares，避免二次读取产生漂移
   const newRemaining = Math.max(0, Math.round((availableShares - sellShares) * SHARE_PRECISION) / SHARE_PRECISION);
   const { error: updateError } = await (supabase
     .from('grid_executions') as any)
     .update({ remaining_shares: newRemaining })
     .eq('id', buyExecutionId);
 
-  if (updateError) {
-    throw new Error(`更新买入执行记录失败: ${updateError.message}`);
-  }
+  if (updateError) throw new Error(`更新买入执行记录失败: ${updateError.message}`);
 
   return { executionId: (sellExecData as any).id, transactionId };
+}
+
+export async function executeGrid(
+  params: ExecuteGridParams
+): Promise<{ executionId: string; transactionId: string }> {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 未配置');
+
+  if (params.action === 'buy') {
+    return executeGridBuy(params);
+  }
+  return executeGridSell(params);
 }
 
 export async function cancelGridExecution(executionId: string): Promise<void> {
@@ -361,19 +365,16 @@ export async function cancelGridExecution(executionId: string): Promise<void> {
 
   // 检查是否已有卖出消耗了该买入份额：卖出 transaction 的 grid_execution_id 指向该 execution
   if (exec.action === 'buy' && exec.transaction_id) {
-    try {
-      const { data: sellTxs } = await supabase
-        .from('transactions')
-        .select('id')
-        .eq('grid_execution_id', executionId)
-        .eq('type', 'sell')
-        .limit(1);
-      if (sellTxs && sellTxs.length > 0) {
-        throw new Error('该买入已被卖出引用，无法取消。请先删除对应的卖出记录。');
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message.includes('已被卖出引用')) throw e;
-      console.warn('检查卖出引用失败，跳过:', e);
+    const { data: sellTxs, error: sellErr } = await supabase
+      .from('transactions')
+      .select('id')
+      .eq('grid_execution_id', executionId)
+      .eq('type', 'sell')
+      .limit(1);
+    // fail-closed：查询失败时拒绝取消以保护数据一致性（修复前 fail-open 会 console.warn 放行→数据损坏）
+    if (sellErr) throw new Error('检查卖出引用失败，拒绝取消以保护数据一致性');
+    if (sellTxs && sellTxs.length > 0) {
+      throw new Error('该买入已被卖出引用，无法取消。请先删除对应的卖出记录。');
     }
   }
 
@@ -569,8 +570,9 @@ export function computeFundOverview(
     for (const level of levels) {
       totalGridCount++;
 
-      // 已买入（持有中或可卖出），考虑部分卖出后剩余份额
-      if (level.execution && !level.sellExecution) {
+      // 已买入（持有中或可卖出），考虑部分卖出后剩余份额。
+      // H2 修复：留利润底仓（卖出后 remaining_shares>0）仍属已投入，不能因 sellExecution 存在就排除。
+      if (level.execution && (!level.sellExecution || (level.execution.remaining_shares ?? 0) > 0)) {
         executedCount++;
         const exec = level.execution;
         const ratio = exec.executed_shares && exec.executed_shares > 0

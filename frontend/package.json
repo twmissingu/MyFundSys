@@ -1,12 +1,13 @@
 {
   "name": "myfundsys",
   "private": true,
-  "version": "2.8.0",
+  "version": "2.9.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
     "preview": "vite preview",
     "deploy": "gh-pages -d dist",
     "test": "vitest run",

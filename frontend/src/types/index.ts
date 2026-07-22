@@ -154,21 +154,6 @@ export interface FundSearchResult {
   navDate?: string;
 }
 
-// Twitter 推文类型定义
-export interface Tweet {
-  id: string;
-  text: string;
-  created_at: string;
-  author_id: string;
-  username: string;
-  name: string;
-  public_metrics: {
-    retweet_count: number;
-    like_count: number;
-    reply_count: number;
-  };
-}
-
 // ============================================
 // 网格交易策略类型定义
 // ============================================

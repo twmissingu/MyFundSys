@@ -128,23 +128,20 @@ const FUND_CODE_REGEX = /^\d+$/;
  */
 export async function searchFunds(keyword: string, mode: 'auto' | 'code' | 'name' = 'auto'): Promise<FundSearchResult[]> {
   if (!keyword || keyword.trim().length < 2) return [];
-  try {
-    const trimmed = keyword.trim();
-    const apiResults = await searchFromEastMoney(trimmed);
+  // 修复 #17：错误不再 catch 返回 [] 掩盖（UI 显示"未找到"而非"搜索失败"），改为抛出
+  const trimmed = keyword.trim();
+  const apiResults = await searchFromEastMoney(trimmed);
 
-    const searchByCode = mode === 'code' || (mode === 'auto' && FUND_CODE_REGEX.test(trimmed));
+  const searchByCode = mode === 'code' || (mode === 'auto' && FUND_CODE_REGEX.test(trimmed));
 
-    if (searchByCode) {
-      return apiResults.filter(f =>
-        f.code.toLowerCase().startsWith(trimmed.toLowerCase())
-      ).slice(0, 10);
-    } else {
-      return apiResults.filter(f =>
-        f.name.toLowerCase().includes(trimmed.toLowerCase())
-      ).slice(0, 10);
-    }
-  } catch {
-    return [];
+  if (searchByCode) {
+    return apiResults.filter(f =>
+      f.code.toLowerCase().startsWith(trimmed.toLowerCase())
+    ).slice(0, 10);
+  } else {
+    return apiResults.filter(f =>
+      f.name.toLowerCase().includes(trimmed.toLowerCase())
+    ).slice(0, 10);
   }
 }
 
@@ -163,19 +160,16 @@ export async function searchByName(name: string): Promise<FundSearchResult[]> {
 }
 
 async function searchFromEastMoney(keyword: string): Promise<FundSearchResult[]> {
-  try {
-    if (!isSupabaseConfigured()) {
-      throw new Error('Supabase 未配置');
-    }
-
-    const { data, error } = await supabase.functions.invoke('fund-search', {
-      body: { keyword },
-    });
-    if (error) throw error;
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
+  // 修复 #17：错误不再 catch 返回 [] 掩盖，改为抛出供调用方处理
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase 未配置');
   }
+
+  const { data, error } = await supabase.functions.invoke('fund-search', {
+    body: { keyword },
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
 }
 
 // ============================================
@@ -278,20 +272,16 @@ export async function fetchFundHistory(
   startDate = '',
   endDate = ''
 ): Promise<FundHistoryData[]> {
-  try {
-    if (!isSupabaseConfigured()) {
-      throw new Error('Supabase 未配置');
-    }
-
-    const { data, error } = await supabase.functions.invoke('fund-history', {
-      body: { code: fundCode, pageSize, pageIndex, startDate, endDate },
-    });
-    if (error) throw new Error(`获取历史净值失败: ${error.message || error}`);
-    if (data) return data;
-    throw new Error('历史净值数据为空');
-  } catch {
-    return [];
+  // 修复 #13：错误不再 catch 返回 [] 掩盖（调用方无法区分"无数据"与"API 故障"），改为抛出
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase 未配置');
   }
+
+  const { data, error } = await supabase.functions.invoke('fund-history', {
+    body: { code: fundCode, pageSize, pageIndex, startDate, endDate },
+  });
+  if (error) throw new Error(`获取历史净值失败: ${error.message || error}`);
+  return Array.isArray(data) ? data : [];
 }
 
 // ============================================

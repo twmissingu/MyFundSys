@@ -47,6 +47,10 @@ function GridDetail({ fundCode, onBack }: GridDetailProps) {
       } else {
         await executeGridLevel(gridType, level);
       }
+    } catch (err) {
+      // 修复：此前仅 finally 无 catch，executeGrid 抛错（如 C1 "买入交易尚未确认"、超卖校验）成未处理 rejection，用户无反馈
+      const msg = err instanceof Error ? err.message : '操作失败';
+      Toast.show({ content: msg, position: 'bottom' });
     } finally {
       setIsExecuting(false);
     }

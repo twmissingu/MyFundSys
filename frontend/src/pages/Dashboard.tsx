@@ -12,13 +12,20 @@ import type { MarketValuationData } from '../types';
 import './Layout.css';
 
 const Dashboard: React.FC = () => {
-  const { holdings, refresh } = useHoldings();
+  const { holdings, refresh, error } = useHoldings();
   const { transactions, refresh: refreshTransactions } = useTransactions();
   const [valuation, setValuation] = useState<MarketValuationData | null>(null);
   const [alertCount, setAlertCount] = useState(0);
 
   const pendingCount = transactions.filter(t => t.status === 'pending').length;
-  const { gridTriggeredCount, valuationSignal } = useRiskMetrics(pendingCount, valuation?.percentile);
+  const { gridTriggeredCount, valuationSignal } = useRiskMetrics(valuation?.percentile);
+
+  // M4 修复：持仓加载失败时提示用户（而非静默显示 0 资产）
+  useEffect(() => {
+    if (error) {
+      Toast.show({ content: `持仓加载失败: ${error}`, position: 'bottom' });
+    }
+  }, [error]);
 
   useEffect(() => {
     let cancelled = false;

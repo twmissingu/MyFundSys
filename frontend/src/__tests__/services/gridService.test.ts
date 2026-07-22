@@ -431,6 +431,27 @@ describe('gridService', () => {
       expect(overview.executed_count).toBe(2);
     });
 
+    it('留利润底仓（部分卖出后 remaining_shares>0）计入已投入（H2 修复）', () => {
+      const strategy = createStrategy();
+      const executions: GridExecution[] = [
+        {
+          id: 'ge_buy_001', strategy_id: 'gs_001', fund_code: '000001',
+          grid_type: 'small', grid_level: 1, action: 'buy', status: 'executed',
+          transaction_id: 'tx_buy', executed_nav: 0.48, executed_amount: 1000,
+          executed_shares: 100, remaining_shares: 20, // 卖出 80，留 20 底仓
+        },
+        {
+          id: 'ge_sell_001', strategy_id: 'gs_001', fund_code: '000001',
+          grid_type: 'small', grid_level: 1, action: 'sell', status: 'executed',
+          transaction_id: 'tx_sell', executed_nav: 0.55, executed_shares: 80,
+        },
+      ];
+      const overview = computeFundOverview(strategy, executions, 0.6);
+
+      // 留利润底仓 20/100 = 20% 投资额 = 200
+      expect(overview.capital_deployed).toBe(200);
+    });
+
     it('待执行 = 当前净值 <= 触发价但未执行的网格数', () => {
       const strategy = createStrategy();
       // 当前净值 0.5，全部触发，一个已执行
@@ -578,6 +599,20 @@ describe('gridService', () => {
         investmentAmount: 0,
         currentNav: 0.48,
       })).rejects.toThrow('必须指定有效的 investmentAmount');
+    });
+
+    it('currentNav 为 0 时抛出错误，防止 Infinity 份额（L1 修复）', async () => {
+      await expect(executeGrid({
+        strategyId: 'gs_001',
+        fundCode: '000001',
+        fundName: '测试基金',
+        gridType: 'small',
+        gridLevel: 1,
+        action: 'buy',
+        triggerPrice: 0.5,
+        investmentAmount: 1000,
+        currentNav: 0,
+      })).rejects.toThrow('净值为 0');
     });
   });
 
@@ -978,6 +1013,27 @@ describe('gridService', () => {
       expect(mockFrom).toHaveBeenCalledWith('transactions');
       expect(mockUpdateResult).toHaveBeenCalled();
     });
+
+    it('取消卖出 execution 时标记 cancelled 并恢复买入 remaining_shares（H-1 状态变更验证）', async () => {
+      mockSelectResult
+        .mockResolvedValueOnce({ data: { id: 'ge_sell', action: 'sell', transaction_id: 'tx_sell', executed_shares: 80, status: 'executed' }, error: null })
+        .mockResolvedValueOnce({ data: { grid_execution_id: 'ge_buy' }, error: null })
+        .mockResolvedValueOnce({ data: { remaining_shares: 920, executed_shares: 1000 }, error: null });
+
+      await cancelGridExecution('ge_sell');
+
+      const allUpdatePayloads = mockFrom.mock.results
+        .filter((r: any) => r.value?.update)
+        .flatMap((r: any) => r.value.update.mock.calls.map((c: any) => c[0]));
+      // ② 标记 cancelled + 清空 transaction_id
+      const cancelUpdate = allUpdatePayloads.find((p: any) => p && p.status === 'cancelled');
+      expect(cancelUpdate).toBeDefined();
+      expect(cancelUpdate.transaction_id).toBeNull();
+      // ③ 恢复 remaining_shares（920 + 80 = 1000，封顶 executed_shares 1000）
+      const restoreUpdate = allUpdatePayloads.find((p: any) => p && p.remaining_shares !== undefined);
+      expect(restoreUpdate).toBeDefined();
+      expect(restoreUpdate.remaining_shares).toBe(1000);
+    });
   });
 
   // ============================================
@@ -985,8 +1041,10 @@ describe('gridService', () => {
   // ============================================
   describe('executeGrid (sell)', () => {
     it('成功创建卖出交易和执行记录', async () => {
-      // 买入 execution 剩余份额读取（修复 A 的上限校验）
-      mockSelectResult.mockResolvedValue({ data: { remaining_shares: 1000, executed_shares: 1000 }, error: null });
+      // 第一次 select：买入 execution（含 transaction_id）；第二次：买入交易状态 completed
+      mockSelectResult
+        .mockResolvedValueOnce({ data: { remaining_shares: 1000, executed_shares: 1000, transaction_id: 'tx_buy_001' }, error: null })
+        .mockResolvedValueOnce({ data: { status: 'completed' }, error: null });
       mockInsertResult.mockResolvedValue({ data: { id: 'ge_sell_001' }, error: null });
 
       const result = await executeGrid({
@@ -1057,7 +1115,9 @@ describe('gridService', () => {
     });
 
     it('卖出执行记录写入失败抛出错误', async () => {
-      mockSelectResult.mockResolvedValue({ data: { remaining_shares: 1000, executed_shares: 1000 }, error: null });
+      mockSelectResult
+        .mockResolvedValueOnce({ data: { remaining_shares: 1000, executed_shares: 1000, transaction_id: 'tx_buy_001' }, error: null })
+        .mockResolvedValueOnce({ data: { status: 'completed' }, error: null });
       mockInsertResult.mockResolvedValue({ data: null, error: { message: 'Insert failed' } });
 
       await expect(executeGrid({
@@ -1106,6 +1166,92 @@ describe('gridService', () => {
         currentNav: 0.6,
         buyExecutionId: 'ge_missing',
       })).rejects.toThrow('未找到对应的买入执行记录');
+    });
+
+    it('卖出在途（pending）买入时抛出错误，防止扣减错误批次（C1 修复）', async () => {
+      // 第一次 select：买入 execution（含 transaction_id）
+      mockSelectResult
+        .mockResolvedValueOnce({ data: { remaining_shares: 1000, executed_shares: 1000, transaction_id: 'tx_buy_001' }, error: null })
+        // 第二次 select：买入交易状态 = pending
+        .mockResolvedValueOnce({ data: { status: 'pending' }, error: null });
+
+      await expect(executeGrid({
+        strategyId: 'gs_001',
+        fundCode: '000001',
+        fundName: '测试基金',
+        gridType: 'small',
+        gridLevel: 1,
+        action: 'sell',
+        triggerPrice: 0.5,
+        sellShares: 1000,
+        currentNav: 0.6,
+        buyExecutionId: 'ge_buy_001',
+      })).rejects.toThrow('买入交易尚未确认');
+    });
+
+    it('买入已确认（completed）时允许卖出（C1 正向）', async () => {
+      mockSelectResult
+        .mockResolvedValueOnce({ data: { remaining_shares: 1000, executed_shares: 1000, transaction_id: 'tx_buy_001' }, error: null })
+        .mockResolvedValueOnce({ data: { status: 'completed' }, error: null });
+      mockInsertResult.mockResolvedValue({ data: { id: 'ge_sell_001' }, error: null });
+
+      const result = await executeGrid({
+        strategyId: 'gs_001',
+        fundCode: '000001',
+        fundName: '测试基金',
+        gridType: 'small',
+        gridLevel: 1,
+        action: 'sell',
+        triggerPrice: 0.5,
+        sellShares: 1000,
+        currentNav: 0.6,
+        buyExecutionId: 'ge_buy_001',
+      });
+
+      expect(mockAddTransactionWithHoldingUpdate).toHaveBeenCalled();
+      expect(result.executionId).toBe('ge_sell_001');
+    });
+
+    it('买入 execution 缺少 transaction_id 拒绝卖出（C1 加固 H-3）', async () => {
+      // buyExecForCheck 无 transaction_id（脏数据）
+      mockSelectResult.mockResolvedValueOnce({ data: { remaining_shares: 1000, executed_shares: 1000 }, error: null });
+      await expect(executeGrid({
+        strategyId: 'gs_001', fundCode: '000001', fundName: '测试基金',
+        gridType: 'small', gridLevel: 1, action: 'sell', triggerPrice: 0.5,
+        sellShares: 1000, currentNav: 0.6, buyExecutionId: 'ge_buy_001',
+      })).rejects.toThrow('缺少关联交易');
+    });
+
+    it('关联买入交易不存在拒绝卖出（C1 加固 H-3）', async () => {
+      mockSelectResult
+        .mockResolvedValueOnce({ data: { remaining_shares: 1000, executed_shares: 1000, transaction_id: 'tx_buy_001' }, error: null })
+        .mockResolvedValueOnce({ data: null, error: null }); // 买入交易查询返回 null
+      await expect(executeGrid({
+        strategyId: 'gs_001', fundCode: '000001', fundName: '测试基金',
+        gridType: 'small', gridLevel: 1, action: 'sell', triggerPrice: 0.5,
+        sellShares: 1000, currentNav: 0.6, buyExecutionId: 'ge_buy_001',
+      })).rejects.toThrow('关联的买入交易不存在');
+    });
+
+    it('部分卖出后正确更新 remaining_shares（H-2 状态变更验证）', async () => {
+      mockSelectResult
+        .mockResolvedValueOnce({ data: { remaining_shares: 1000, executed_shares: 1000, transaction_id: 'tx_buy_001' }, error: null })
+        .mockResolvedValueOnce({ data: { status: 'completed' }, error: null });
+      mockInsertResult.mockResolvedValue({ data: { id: 'ge_sell_001' }, error: null });
+
+      await executeGrid({
+        strategyId: 'gs_001', fundCode: '000001', fundName: '测试基金',
+        gridType: 'small', gridLevel: 1, action: 'sell', triggerPrice: 0.5,
+        sellShares: 300, currentNav: 0.6, buyExecutionId: 'ge_buy_001',
+      });
+
+      // 从所有 from() 调用结果中收集 update payload，找到 remaining_shares 更新
+      const allUpdatePayloads = mockFrom.mock.results
+        .filter((r: any) => r.value?.update)
+        .flatMap((r: any) => r.value.update.mock.calls.map((c: any) => c[0]));
+      const remainingUpdate = allUpdatePayloads.find((p: any) => p && p.remaining_shares !== undefined);
+      expect(remainingUpdate).toBeDefined();
+      expect(remainingUpdate.remaining_shares).toBe(700); // 1000 - 300
     });
   });
 

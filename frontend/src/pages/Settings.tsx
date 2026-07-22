@@ -57,17 +57,30 @@ const Settings: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    let content: string;
     try {
-      setImporting(true);
-      const content = await file.text();
-      await importDatabase(content);
-      Toast.show({ content: '导入成功', position: 'bottom' });
-      dispatchDataChanged();
+      content = await file.text();
     } catch {
-      Toast.show({ content: '导入失败', position: 'bottom' });
-    } finally {
-      setImporting(false);
+      Toast.show({ content: '读取文件失败', position: 'bottom' });
+      return;
     }
+    // 安全：导入会清空当前所有数据，需二次确认（与 handleReset 一致，修复破坏性无确认）
+    Dialog.confirm({
+      title: '导入数据',
+      content: '导入将清空当前所有数据并替换为备份内容，确定继续？',
+      onConfirm: async () => {
+        try {
+          setImporting(true);
+          await importDatabase(content);
+          Toast.show({ content: '导入成功', position: 'bottom' });
+          dispatchDataChanged();
+        } catch {
+          Toast.show({ content: '导入失败', position: 'bottom' });
+        } finally {
+          setImporting(false);
+        }
+      },
+    });
   };
 
   const handleImportClick = () => {
@@ -125,7 +138,9 @@ const Settings: React.FC = () => {
       // 导入后处理在途交易（导入的历史交易若 pending 可被即时确认）
       try {
         await processPendingTransactions();
-      } catch { /* 在途处理失败不阻塞导入结果提示 */ }
+      } catch (e) { /* 在途处理失败不阻塞导入结果提示，但记录 */
+        console.warn('导入后在途处理失败:', e);
+      }
 
       const parts = [`${successCount} 成功`];
       if (skippedCount > 0) parts.push(`${skippedCount} 重复跳过`);

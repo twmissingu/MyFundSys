@@ -11,7 +11,7 @@ import TotalAssetsCard from '../components/TotalAssetsCard';
 import './Layout.css';
 
 const Holdings: React.FC = () => {
-  const { holdings, lots, loading, removeHolding, refresh } = useHoldings();
+  const { holdings, lots, loading, error, removeHolding, refresh } = useHoldings();
   const { transactions, saveTransaction, refresh: refreshTransactions } = useTransactions();
   const [activeTab, setActiveTab] = useState('lots');
 
@@ -174,7 +174,9 @@ const Holdings: React.FC = () => {
             }
 
             const navInfo = lotNavMap.get(lot.fundCode);
-            const currentNav = navInfo?.nav ?? lot.cost;
+            // 修复 #12：净值不可用时不兜底为 lot.cost（会显示 0 利润误导），改为标记不可用
+            const navAvailable = !!navInfo && typeof navInfo.nav === 'number' && navInfo.nav > 0;
+            const currentNav = navAvailable ? navInfo!.nav : 0;
             const currentValue = currentNav * lot.remainingShares;
             const cost = lot.cost * lot.remainingShares;
             const profit = currentValue - cost;
@@ -202,17 +204,23 @@ const Holdings: React.FC = () => {
                     }
                     extra={
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 15, fontWeight: 500 }}>
-                          {formatMoney(currentValue)}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            color: profit >= 0 ? '#ff4d4f' : '#52c41a'
-                          }}
-                        >
-                          {profit >= 0 ? '+' : ''}{formatMoney(profit)} ({formatPercent(profitRate)})
-                        </div>
+                        {navAvailable ? (
+                          <>
+                            <div style={{ fontSize: 15, fontWeight: 500 }}>
+                              {formatMoney(currentValue)}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                color: profit >= 0 ? '#ff4d4f' : '#52c41a'
+                              }}
+                            >
+                              {profit >= 0 ? '+' : ''}{formatMoney(profit)} ({formatPercent(profitRate)})
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: 13, color: '#999' }}>净值不可用</div>
+                        )}
                       </div>
                     }
                   >
@@ -327,6 +335,18 @@ const Holdings: React.FC = () => {
       <div className="page-container">
         <h1 className="page-title">持仓管理</h1>
         <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>加载中...</div>
+      </div>
+    );
+  }
+
+  if (error && holdings.length === 0) {
+    return (
+      <div className="page-container">
+        <h1 className="page-title">持仓管理</h1>
+        <div style={{ textAlign: 'center', padding: '40px', color: '#ff4d4f' }}>
+          {error}
+          <div style={{ marginTop: 12, color: '#1677ff', cursor: 'pointer' }} onClick={() => refresh()}>点击重试</div>
+        </div>
       </div>
     );
   }

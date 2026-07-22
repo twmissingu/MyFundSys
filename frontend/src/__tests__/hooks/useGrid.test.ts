@@ -209,7 +209,7 @@ describe('useGridStrategies', () => {
     );
   });
 
-  it('fetchFundNav 失败时回退到 strategy.bottom_price', async () => {
+  it('fetchFundNav 失败时不再回退到 bottom_price（避免错误买入信号，修复 #10）', async () => {
     const strategy = makeStrategy({ bottom_price: 0.8 });
     mockFetchGridStrategies.mockResolvedValue([strategy]);
     mockFetchAllGridExecutions.mockResolvedValue([]);
@@ -219,7 +219,7 @@ describe('useGridStrategies', () => {
     expect(mockComputeFundOverview).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      0.8
+      Number.NaN
     );
   });
 
@@ -287,13 +287,13 @@ describe('useGridDetail', () => {
     expect(result.current.currentNav).toBe(1.05);
   });
 
-  it('fetchFundNav 失败时回退到 strat.bottom_price', async () => {
+  it('fetchFundNav 失败时不再回退到 strat.bottom_price（修复 #10）', async () => {
     const strategy = makeStrategy({ bottom_price: 0.8 });
     mockFetchGridStrategyByFund.mockResolvedValue(strategy);
     mockFetchFundNav.mockRejectedValue(new Error('Network error'));
     const { result } = renderHook(() => useGridDetail('000001'));
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.currentNav).toBe(0.8);
+    expect(result.current.currentNav).toBeNaN();
   });
 
   it('baseShares 计算已买入未卖出格子的份额之和', async () => {

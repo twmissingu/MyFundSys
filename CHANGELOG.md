@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-07-22
+
+第二轮对抗性打磨（10 轮迭代）+ 第三轮补全审计（5 轮，修复 4 CRITICAL + 6 HIGH 静默失败/数据损坏）。各维度评分 ≥7/10。
+
+### Fixed
+- **C1（CRITICAL）网格卖出对在途买入匹配错误** — 网格买入为 `pending`、卖出为 `completed`，`deriveLots` 排除 pending 批次导致卖出扣减错误批次或静默忽略。服务层守卫：卖出前校验买入交易状态，pending 则拒绝（`executeGrid` + `addTransactionWithHoldingUpdate`）；守卫加固：`transaction_id` 缺失或关联买入交易不存在时拒绝卖出
+- **CRITICAL syncGridOnTransactionDelete fail-open** — 6 处 Supabase 调用未检查 error，卖出引用安全检查失败时放行取消买入→数据损坏。改 fail-closed
+- **CRITICAL cancelGridExecution fail-open** — 卖出引用检查失败时 console.warn 放行→数据损坏。改 fail-closed
+- **CRITICAL exportDatabase 静默空备份** — 5 查询未检查 error，`|| []` 兜底产生看似有效实则全空的备份→数据丢失。改检查 error 拒绝导出
+- **CRITICAL importDatabase FK 清理未检查 error** — 部分导入损坏。改检查 error
+- **H5 超卖静默丢失** — Transactions.tsx 添加卖出表单此前无超卖校验，`deriveLots` 静默丢弃超额份额。新增 `getFundAvailableShares` 纯函数 + UI 与服务层双重守卫；**pending 卖出确认路径也补超卖校验**（processPendingTransactions，闭环 H5）
+- **H2 留利润底仓未计入已投入** — `computeFundOverview` / `useGrid baseShares` 的 `!level.sellExecution` 条件把部分卖出后留利润的剩余份额排除，改为 `remaining_shares > 0` 判断
+- **M4 加载失败静默显示空数据** — `useHoldings`/`useTransactions` 增加 `error` 状态（含 supabase 错误），Holdings/Transactions/Dashboard/Reports 展示错误 + 重试
+- **L1 网格买入 currentNav=0 产生 Infinity 份额** — 加净值零值守卫
+- **GridDetail.handleExecute 无 catch** — executeGrid 抛错（C1/超卖）成未处理 rejection，用户无反馈。加 catch + Toast
+- **useGrid NAV 失败兜底 bottom_price** — 会让所有网格显示买入信号→错误交易。改 NaN（deriveGridStatuses 的 NaN 比较无虚假触发）
+- **alertService.resolveAlert 未检查 error** — 更新失败时 UI 误移除未解决告警。改检查 error + 调用方 try/catch
+- **FundDetail.toggleFavorite 未检查 error** — delete/insert 失败时 UI/DB 不一致。改检查 error
+- **alertService fetchAlerts/fetchUnresolvedAlertCount 返回 []/0 掩盖错误** — 改抛出（修复 #8）
+- **fundApi fetchFundHistory/searchFunds 返回 [] 掩盖错误** — 改抛出（修复 #13/#17）；FundHistoryCard 补 try/catch
+- **FundDetail.loadFundInfo 未检查 error + .catch(()=>{})** — 改检查 error + 日志（#14）；批次加载错误改 Toast 提示（#15）
+- **Transactions 自动收藏未检查 error** — 改 try/catch + 日志（#16）
+- **FavoriteFunds.handleRemove 未检查 error + loadHistoryData 空 catch** — 改检查 error + 日志（#21/#22）
+- **Holdings 批次视图 NAV→cost 兜底显示 0 利润** — 改"净值不可用"（#12，避免误导）
+- **多处空 catch** — processPendingTransactions 告警 catch、Settings.handleCsvImport catch 改 console.warn（#18/#19）
+- **安全：importDatabase 破坏性导入无确认** — 加 Dialog.confirm（与 handleReset 一致）
+
+### Removed
+- Reports 收益曲线 `Math.random()` 伪造数据（金融应用诚实性）
+- 遗留 holding 变异函数 `updateLocalHoldingAfterTransaction` / `reverseTransactionOnHoldingUpdate`（被 lot 派生取代，~230 行死代码）+ `Tweet` 死类型
+- `syncService.ts`（IndexedDB 时代死代码，生产零引用）+ 其测试
+- 5 个同义反复测试（测 JS `||` 运算符而非应用代码）
+
+### Changed
+- `useRiskMetrics` 精简为仅返回 Dashboard 实际消费的 2 个字段，移除 4 个死字段 + 重复 fetch（顺带消解 `totalAssets` 漏算 `pendingBuyAmount`）
+- 提取 `mapTransaction` 到 `utils/mapTransaction.ts`，`useSync` 与 `navUpdateService` 共用（避免循环依赖与 DRY 违反）
+- useSync 核心纯函数（`mapTransaction` / `enrichHoldingsWithNav`）补真实测试，有效覆盖率从 ~65% 提升
+- `alertService.createAlert` fallback insert 空 catch 改 console.warn（不再完全静默）
+- 测试 542 → **520**（移除 ~51 死代码/重复/同义反复测试，新增 ~29 真实测试：fail-closed 守卫、C1 加固、cancelGridExecution 状态变更、remaining_shares 部分卖出、网格回填、M4 hook error、fetchAlerts/fetchFundHistory/searchFunds 错误抛出）；`tsc -b` + `npm run build` 通过
+- `gridService.ts` 拆分 `executeGrid`（185 行 → `executeGridBuy` / `executeGridSell` + 薄路由），单个函数职责更清晰
+- `navUpdateService.ts` 拆分 `processPendingTransactions`（提取 `buildPendingNavCache`），修复 try 块内缩进不一致
+- `Transactions.tsx` 提取 `AddTransactionDialog`（1118 行 → 组件 ~470 行 + 页面 ~560 行），新增独立组件测试
+- `db/index.ts`：递归 `hasPoison`→ JSON.parse reviver（原型污染检查性能优化）
+- 废弃 `searchByCode`/`searchByName` → 统一 `searchFunds(code, mode)`；废弃 `isGitHubPages` 绕过
+
 ## [2.8.0] - 2026-06-21
 
 ### Changed

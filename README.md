@@ -97,7 +97,7 @@ npm install
 cp .env.example .env.local
 
 # 3. Run tests
-npm test                    # 542 unit tests, Vitest
+npm test                    # 520 unit tests, Vitest
 TEST_PASSWORD=<app-password> npm run test:e2e   # 14 Playwright e2e (read-only smoke; needs dev server + Supabase)
 
 # 4. Build
@@ -130,7 +130,7 @@ npx vitest run src/__tests__/services/fundApi.test.ts   # Single file
 TEST_PASSWORD=<app-password> npm run test:e2e   # Playwright e2e (read-only smoke)
 ```
 
-**Framework**: Vitest 4 + @testing-library/react — **542 web unit tests** + 24 Android tests.
+**Framework**: Vitest 4 + @testing-library/react — **520 web unit tests** + 24 Android tests.
 
 **E2E**: 14 Playwright specs (navigation / fund-search / holdings / critical-paths) — read-only
 smoke tests that verify page reachability and rendering. Mutating flows (transaction add/delete,

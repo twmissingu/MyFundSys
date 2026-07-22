@@ -10,8 +10,12 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { removeTransactionWithHoldingUpdate, removeHoldingWithTransactions, deriveLots, summarizeHoldings, addTransactionWithHoldingUpdate } from '../services/navUpdateService';
 import { batchFetchNav } from '../services/fundApi';
 import { onDataChanged } from '../utils/dataChangeEvent';
+import { mapTransaction } from '../utils/mapTransaction';
 import type { Holding, Transaction } from '../types';
 import type { Lot, RealizedLot } from '../services/navUpdateService';
+
+// 重新导出供测试直接使用（mapTransaction 已提取到 utils 共用）
+export { mapTransaction };
 
 // ============================================
 // 同步状态 Hook
@@ -74,27 +78,6 @@ export function useSyncStatus() {
 // 数据访问 Hooks
 // ============================================
 
-function mapTransaction(t: any): Transaction {
-  return {
-    id: t.id,
-    fundId: t.fund_code,
-    fundCode: t.fund_code,
-    fundName: t.fund_name,
-    type: t.type,
-    date: t.date,
-    confirmDate: t.confirm_date || t.date,
-    amount: t.amount,
-    price: t.nav,
-    shares: t.shares,
-    fee: t.fee,
-    status: t.status,
-    source: t.source || 'manual',
-    gridExecutionId: t.grid_execution_id,
-    lotId: t.lot_id,
-    createdAt: t.created_at,
-  };
-}
-
 /**
  * 持仓 Hook
  * 从交易记录派生批次，汇总为基金级持仓，再获取最新净值计算盈亏
@@ -103,12 +86,18 @@ export function useHoldings() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadHoldings = useCallback(async () => {
     try {
       if (isSupabaseConfigured()) {
         const { data: txData, error } = await supabase.from('transactions').select('*');
-        if (!error && txData) {
+        if (error) {
+          // M4 修复：supabase 错误（如 RLS 拒绝、网络）不再静默，上报供 UI 提示
+          setLoadError(`加载持仓失败: ${error.message}`);
+          return;
+        }
+        if (txData) {
           const transactions = txData.map(mapTransaction);
           // 从交易派生批次
           const derivedLots = deriveLots(transactions);
@@ -118,11 +107,13 @@ export function useHoldings() {
           // 获取最新净值，计算市值和盈亏
           const enriched = await enrichHoldingsWithNav(summaries);
           setHoldings(enriched);
+          setLoadError(null);
           return;
         }
       }
-    } catch {
-      // 加载异常由 loading 状态处理
+    } catch (err) {
+      // M4 修复：加载异常不再静默显示空数据
+      setLoadError(err instanceof Error ? err.message : '加载持仓失败');
     } finally {
       setLoading(false);
     }
@@ -144,7 +135,7 @@ export function useHoldings() {
     await removeHoldingWithTransactions(fundCode);
   }, []);
 
-  return { holdings, lots, loading, removeHolding, refresh };
+  return { holdings, lots, loading, error: loadError, removeHolding, refresh };
 }
 
 /**
@@ -153,18 +144,26 @@ export function useHoldings() {
 export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadTransactions = useCallback(async () => {
     try {
       if (isSupabaseConfigured()) {
         const { data, error } = await supabase.from('transactions').select('*');
-        if (!error && data) {
+        if (error) {
+          // M4 修复：supabase 错误不再静默
+          setLoadError(`加载交易记录失败: ${error.message}`);
+          return;
+        }
+        if (data) {
           setTransactions(data.map(mapTransaction));
+          setLoadError(null);
           return;
         }
       }
-    } catch {
-      // 加载异常由 loading 状态处理
+    } catch (err) {
+      // M4 修复：加载异常不再静默显示空数据
+      setLoadError(err instanceof Error ? err.message : '加载交易记录失败');
     } finally {
       setLoading(false);
     }
@@ -193,13 +192,13 @@ export function useTransactions() {
     await removeTransactionWithHoldingUpdate(id);
   }, []);
 
-  return { transactions, loading, saveTransaction, removeTransaction, refresh };
+  return { transactions, loading, error: loadError, saveTransaction, removeTransaction, refresh };
 }
 
 /**
  * 批量获取持仓的最新净值，实时计算市值和盈亏
  */
-async function enrichHoldingsWithNav(summaries: ReturnType<typeof summarizeHoldings>): Promise<Holding[]> {
+export async function enrichHoldingsWithNav(summaries: ReturnType<typeof summarizeHoldings>): Promise<Holding[]> {
   if (summaries.length === 0) return [];
 
   const fundCodes = [...new Set(summaries.map(s => s.fundCode))];

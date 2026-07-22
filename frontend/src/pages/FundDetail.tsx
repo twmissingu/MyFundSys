@@ -46,12 +46,14 @@ const FundDetail: React.FC = () => {
       if (!fundCode) return;
       
       if (isSupabaseConfigured()) {
-        const { data: favorite } = await supabase
+        const { data: favorite, error: favErr } = await supabase
           .from('favorite_funds')
           .select('*')
           .eq('fund_code', fundCode)
           .limit(1)
           .maybeSingle();
+        // 修复 #14：检查 error，避免查询失败时误设 isFavorite=false
+        if (favErr) throw favErr;
         setIsFavorite(!!favorite);
 
         if (favorite) {
@@ -63,8 +65,8 @@ const FundDetail: React.FC = () => {
         }
       }
     };
-    
-    loadFundInfo().catch(() => {});
+
+    loadFundInfo().catch((e) => console.warn('加载基金信息失败:', e));
   }, [fundCode]);
 
   // 加载基金净值数据
@@ -87,7 +89,12 @@ const FundDetail: React.FC = () => {
           .select('*')
           .eq('fund_code', fundCode);
         if (cancelled) return;
-        if (!error && data) {
+        // 修复 #15：查询失败时提示，而非静默显示"暂无交易批次数据"
+        if (error) {
+          if (!cancelled) Toast.show({ content: '加载交易批次失败', position: 'bottom' });
+          return;
+        }
+        if (data) {
           const mapped: Transaction[] = data.map((t: any) => ({
             id: t.id,
             fundId: t.fund_code,
@@ -154,16 +161,19 @@ const FundDetail: React.FC = () => {
     try {
       if (isFavorite) {
         // 取消收藏
-        await supabase.from('favorite_funds').delete().eq('fund_code', fundCode);
+        const { error } = await supabase.from('favorite_funds').delete().eq('fund_code', fundCode);
+        // 修复 #6：检查 error，避免删除失败时 UI 误设为已取消收藏（catch 仅捕获抛出，不捕获 supabase error）
+        if (error) throw new Error(error.message);
         setIsFavorite(false);
         Toast.show({ content: '已取消收藏', position: 'bottom' });
       } else {
         // 添加收藏
-        await supabase.from('favorite_funds').insert({
+        const { error } = await supabase.from('favorite_funds').insert({
           fund_code: fundCode,
           fund_name: name,
           category,
         } as any);
+        if (error) throw new Error(error.message);
         setIsFavorite(true);
         Toast.show({ content: '已收藏', position: 'bottom' });
       }

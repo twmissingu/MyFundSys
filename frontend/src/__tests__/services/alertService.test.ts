@@ -124,13 +124,12 @@ describe('alertService', () => {
       });
     });
 
-    it('查询出错返回空数组', async () => {
+    it('查询出错抛出错误（修复 #8：不再返回空数组掩盖）', async () => {
       mockSelect.mockReturnValue({
         order: vi.fn().mockResolvedValue({ data: null, error: { message: 'error' } }),
       });
 
-      const result = await fetchAlerts();
-      expect(result).toEqual([]);
+      await expect(fetchAlerts()).rejects.toThrow('加载告警失败');
     });
 
     it('Supabase 未配置返回空数组', async () => {
@@ -172,13 +171,12 @@ describe('alertService', () => {
       expect(result).toBe(3);
     });
 
-    it('查询出错返回 0', async () => {
+    it('查询出错抛出错误（修复 #8：不再返回 0 掩盖）', async () => {
       mockSelect.mockReturnValue({
         eq: vi.fn().mockResolvedValue({ count: null, error: { message: 'error' } }),
       });
 
-      const result = await fetchUnresolvedAlertCount();
-      expect(result).toBe(0);
+      await expect(fetchUnresolvedAlertCount()).rejects.toThrow('加载告警数量失败');
     });
 
     it('Supabase 未配置返回 0', async () => {

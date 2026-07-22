@@ -97,7 +97,7 @@ npm install
 cp .env.example .env.local
 
 # 3. 运行测试
-npm test                    # 542 个测试（Web），Vitest 框架
+npm test                    # 520 个测试（Web），Vitest 框架
 npm run test:e2e            # Playwright E2E 测试
 
 # 4. 构建
@@ -129,7 +129,7 @@ npx vitest run src/__tests__/services/fundApi.test.ts   # 单个文件
 npm run test:e2e                    # Playwright E2E
 ```
 
-**框架**：Vitest 4 + @testing-library/react — **542 个测试（Web），20 个测试文件**
+**框架**：Vitest 4 + @testing-library/react — **520 个测试（Web），20 个测试文件**
 
 ## Android 客户端
 

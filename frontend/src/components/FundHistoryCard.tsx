@@ -64,32 +64,39 @@ const FundHistoryCard: React.FC<FundHistoryCardProps> = ({ fundCode }) => {
       let allData: FundHistoryData[] = [];
       let pageIndex = 1;
       const maxPages = 50; // 最多加载50页（约1000条，每页20条）
-      
-      // 分页加载，直到没有更多数据
-      // 注意：东方财富API每页固定返回20条，无视pageSize参数
-      while (pageIndex <= maxPages) {
-        const pageData = await fetchFundHistory(fundCode, 20, pageIndex, startDate || '');
-        
-        if (pageData.length === 0) {
-          break; // 没有更多数据
-        }
-        
-        allData = [...allData, ...pageData];
-        
-        // 如果当前页返回数据少于20条，说明是最后一页
-        if (pageData.length < 20) {
-          break;
-        }
-        
-        pageIndex++;
-      }
-      
-      // API返回的数据是倒序（最新在前），需要按时间正序排列（最旧在前）以便图表显示
-      allData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      if (isMounted) {
-        setHistoryData(allData);
-        setLoading(false);
+      try {
+        // 分页加载，直到没有更多数据
+        // 注意：东方财富API每页固定返回20条，无视pageSize参数
+        while (pageIndex <= maxPages) {
+          const pageData = await fetchFundHistory(fundCode, 20, pageIndex, startDate || '');
+
+          if (pageData.length === 0) {
+            break; // 没有更多数据
+          }
+
+          allData = [...allData, ...pageData];
+
+          // 如果当前页返回数据少于20条，说明是最后一页
+          if (pageData.length < 20) {
+            break;
+          }
+
+          pageIndex++;
+        }
+
+        // API返回的数据是倒序（最新在前），需要按时间正序排列（最旧在前）以便图表显示
+        allData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        if (isMounted) {
+          setHistoryData(allData);
+        }
+      } catch (e) {
+        // 修复 #13：fetchFundHistory 现抛错（不再返回 [] 掩盖），此处 catch 避免未处理 rejection
+        console.warn('加载历史净值失败:', e);
+        if (isMounted) setHistoryData([]);
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
     

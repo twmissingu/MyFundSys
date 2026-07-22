@@ -48,17 +48,16 @@ export function useGridStrategies() {
         if (result.status === 'fulfilled' && result.value) {
           navMap.set(fundCodes[i], result.value.nav);
         } else {
-          const strategy = strategies.find(s => s.fund_code === fundCodes[i]);
-          if (strategy) {
-            navMap.set(fundCodes[i], strategy.bottom_price);
-          }
+          // 修复 #10：净值获取失败不再兜底为 bottom_price（会让所有网格显示买入信号→错误交易）。
+          // 用 NaN：deriveGridStatuses 的 NaN 比较全为 false，非执行层级显示 'above'（无虚假触发）。
+          navMap.set(fundCodes[i], Number.NaN);
         }
       });
 
       // 4. 计算每个基金的总览
       const overviewList: GridFundOverview[] = strategies.map(strategy => {
         const executions = executionsByFund.get(strategy.fund_code) || [];
-        const currentNav = navMap.get(strategy.fund_code) || strategy.bottom_price;
+        const currentNav = navMap.get(strategy.fund_code) ?? Number.NaN;
         return computeFundOverview(strategy, executions, currentNav);
       });
 
@@ -105,7 +104,8 @@ export function useGridDetail(fundCode: string) {
     let total = 0;
     for (const gridType of GRID_TYPES) {
       for (const level of levelsByType[gridType] || []) {
-        if (level.status === 'executed' && level.execution && !level.sellExecution) {
+        // H2 修复：留利润底仓（卖出后 remaining_shares>0）仍计入底仓份额。
+        if (level.status === 'executed' && level.execution && (!level.sellExecution || (level.execution.remaining_shares ?? 0) > 0)) {
           // 已买入未卖出，持有中（这些份额在卖出时会部分留存为底仓）
           total += level.execution.remaining_shares ?? level.execution.executed_shares ?? 0;
         }
@@ -138,9 +138,10 @@ export function useGridDetail(fundCode: string) {
       let nav: number;
       try {
         const navData = await fetchFundNav(fundCode);
-        nav = navData?.nav || strat.bottom_price;
+        // 修复 #10：净值获取失败/为空不再兜底 bottom_price（会触发错误买入信号），用 NaN
+        nav = navData?.nav ?? Number.NaN;
       } catch {
-        nav = strat.bottom_price;
+        nav = Number.NaN;
       }
       setCurrentNav(nav);
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { SpinLoading, Empty, Button, Toast } from 'antd-mobile';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useHoldings } from '../hooks/useSync';
 import { exportDatabase, importDatabase } from '../db';
 import { dispatchDataChanged } from '../utils/dataChangeEvent';
@@ -10,7 +10,7 @@ import './Layout.css';
 const COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fadb14'];
 
 const Reports: React.FC = () => {
-  const { holdings, loading } = useHoldings();
+  const { holdings, loading, error } = useHoldings();
 
   // 按分类统计
   const categoryData = React.useMemo(() => {
@@ -28,22 +28,6 @@ const Reports: React.FC = () => {
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
   }, [holdings]);
-
-  // 模拟收益曲线数据
-  const profitData = React.useMemo(() => {
-    const data = [];
-    let value = 100000;
-    for (let i = 30; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      value = value * (1 + (Math.random() - 0.48) * 0.02);
-      data.push({
-        date: date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }),
-        value: Math.round(value),
-      });
-    }
-    return data;
-  }, []);
 
   const handleExport = async () => {
     try {
@@ -107,7 +91,7 @@ const Reports: React.FC = () => {
       </div>
 
       {holdings.length === 0 ? (
-        <Empty description="暂无持仓数据，无法生成报告" />
+        <Empty description={error || '暂无持仓数据，无法生成报告'} />
       ) : (
         <>
           {/* 资产配置饼图 */}
@@ -132,28 +116,6 @@ const Reports: React.FC = () => {
                   </Pie>
                   <Tooltip formatter={(value: number) => `¥${value.toFixed(2)}`} />
                 </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* 收益曲线 */}
-          <div className="card">
-            <div className="card-title">收益曲线（模拟）</div>
-            <div style={{ height: '250px' }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={profitData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value: number) => `¥${value.toFixed(2)}`} />
-                  <Line 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="#1677ff" 
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
               </ResponsiveContainer>
             </div>
           </div>

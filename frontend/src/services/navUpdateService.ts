@@ -7,9 +7,10 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { fetchFundHistory } from './fundApi';
 import { formatLocalDate } from '../utils/csv';
+import { mapTransaction } from '../utils/mapTransaction';
 import { createAlert } from './alertService';
 import { isAuthenticated } from '../hooks/useSupabase';
-import type { Holding, Transaction } from '../types';
+import type { Transaction } from '../types';
 
 declare global {
   interface Window {
@@ -421,96 +422,15 @@ export function canDeleteTransaction(
   return { canDelete: true };
 }
 
-// ============================================
-// 持仓更新工具函数
-// ============================================
-
-export function updateLocalHoldingAfterTransaction(
-  holding: Holding | undefined,
-  transaction: Transaction
-): { holding: Holding | null; shouldDelete: boolean } {
-  if (!holding) {
-    if (transaction.type === 'sell') {
-      return { holding: null, shouldDelete: false };
-    }
-    return {
-      holding: {
-        id: crypto.randomUUID(),
-        fundId: transaction.fundId,
-        fundCode: transaction.fundCode,
-        fundName: transaction.fundName,
-        shares: transaction.shares,
-        avgCost: transaction.price,
-        totalCost: transaction.amount,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      shouldDelete: false,
-    };
-  }
-
-  const newShares = transaction.type === 'buy'
-    ? holding.shares + transaction.shares
-    : holding.shares - transaction.shares;
-
-  let newTotalCost = transaction.type === 'buy'
-    ? holding.totalCost + transaction.amount
-    : holding.shares > 0
-      ? holding.totalCost * (1 - Math.min(1, transaction.shares / holding.shares))
-      : 0;
-
-  if (newTotalCost < 0) {
-    newTotalCost = 0;
-  }
-
-  if (newShares <= 0) {
-    return { holding: null, shouldDelete: true };
-  }
-
-  return {
-    holding: {
-      ...holding,
-      shares: newShares,
-      totalCost: newTotalCost,
-      avgCost: newTotalCost / newShares,
-      updatedAt: new Date().toISOString(),
-    },
-    shouldDelete: false,
-  };
-}
-
-export function reverseTransactionOnHolding(
-  holding: Holding | undefined,
-  transaction: Transaction
-): { holding: Holding | null; shouldDelete: boolean } {
-  if (!holding) {
-    return { holding: null, shouldDelete: false };
-  }
-
-  const newShares = transaction.type === 'buy'
-    ? holding.shares - transaction.shares
-    : holding.shares + transaction.shares;
-
-  const newTotalCost = transaction.type === 'buy'
-    ? holding.totalCost - transaction.amount
-    : holding.shares > 0
-      ? holding.totalCost * (holding.shares + transaction.shares) / holding.shares
-      : transaction.amount;
-
-  if (newShares <= 0) {
-    return { holding: null, shouldDelete: true };
-  }
-
-  return {
-    holding: {
-      ...holding,
-      shares: newShares,
-      totalCost: newTotalCost,
-      avgCost: newTotalCost / newShares,
-      updatedAt: new Date().toISOString(),
-    },
-    shouldDelete: false,
-  };
+/**
+ * 返回指定基金当前可卖份额（已完成买入批次剩余份额之和，不含在途）。
+ * 用于卖出前防超卖校验。
+ */
+export function getFundAvailableShares(transactions: Transaction[], fundCode: string): number {
+  const lots = deriveLots(transactions);
+  return lots
+    .filter(l => l.fundCode === fundCode && !l.isPending)
+    .reduce((sum, l) => sum + l.remainingShares, 0);
 }
 
 // ============================================
@@ -529,6 +449,23 @@ export async function addTransactionWithHoldingUpdate(
   if (!isAuthenticated()) throw new Error('认证已过期，请刷新页面重新登录');
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase 未配置');
+  }
+
+  // H5 服务层守卫：卖出（已确认）时校验不超过当前持仓，杜绝绕过 UI 的超卖。
+  // 与 executeGrid 的服务层校验一致；pending 卖出无确认份额，跳过。
+  if (transaction.type === 'sell' && (transaction.status || 'completed') === 'completed') {
+    const { data: existingTxs, error: fetchErr } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('fund_code', transaction.fundCode);
+    if (fetchErr) throw new Error(`查询持仓失败: ${fetchErr.message}`);
+    const available = getFundAvailableShares(
+      (existingTxs as any[] || []).map(mapTransaction),
+      transaction.fundCode
+    );
+    if (transaction.shares > available + 1e-4) {
+      throw new Error(`卖出份额(${transaction.shares})超过当前持仓(${available.toFixed(4)})`);
+    }
   }
 
   const transactionId = crypto.randomUUID();
@@ -634,54 +571,61 @@ export async function removeTransactionWithHoldingUpdate(
  */
 async function syncGridOnTransactionDelete(transaction: any): Promise<void> {
   // 找到 transaction_id 指向该交易的 grid_executions 记录
-  const { data: execData } = await (supabase
+  const { data: execData, error: execErr } = await (supabase
     .from('grid_executions') as any)
     .select('*')
     .eq('transaction_id', transaction.id)
     .maybeSingle();
+  if (execErr) throw new Error(`查询网格执行记录失败: ${execErr.message}`);
   const exec = execData as any;
 
   // 删网格卖出交易：回补买入 execution 的剩余份额
   if (transaction.type === 'sell') {
     const buyExecId = transaction.grid_execution_id;
     if (buyExecId) {
-      const { data: buyExec } = await (supabase
+      const { data: buyExec, error: buyErr } = await (supabase
         .from('grid_executions') as any)
         .select('remaining_shares, executed_shares')
         .eq('id', buyExecId)
         .maybeSingle();
+      if (buyErr) throw new Error(`查询买入执行记录失败: ${buyErr.message}`);
       if (buyExec) {
         const restoreShares = exec?.executed_shares ?? transaction.shares ?? 0;
         const currentRemaining = buyExec.remaining_shares ?? 0;
         const cap = buyExec.executed_shares ?? Number.POSITIVE_INFINITY;
         const restored = Math.min(cap, Math.round((currentRemaining + restoreShares) * 10000) / 10000);
-        await (supabase.from('grid_executions') as any)
+        const { error: restoreErr } = await (supabase.from('grid_executions') as any)
           .update({ remaining_shares: restored })
           .eq('id', buyExecId);
+        if (restoreErr) throw new Error(`回补买入份额失败: ${restoreErr.message}`);
       }
     }
     if (exec && exec.action === 'sell') {
-      await (supabase.from('grid_executions') as any)
+      const { error: cancelErr } = await (supabase.from('grid_executions') as any)
         .update({ status: 'cancelled', transaction_id: null })
         .eq('id', exec.id);
+      if (cancelErr) throw new Error(`取消卖出执行记录失败: ${cancelErr.message}`);
     }
     return;
   }
 
   // 删网格买入交易：若已被卖出引用则阻止
   if (transaction.type === 'buy' && exec && exec.action === 'buy') {
-    const { data: sellTxs } = await supabase
+    const { data: sellTxs, error: sellErr } = await supabase
       .from('transactions')
       .select('id')
       .eq('grid_execution_id', exec.id)
       .eq('type', 'sell')
       .limit(1);
+    // fail-closed：查询失败时拒绝删除以保护数据一致性（修复前 fail-open 会放行取消买入→数据损坏）
+    if (sellErr) throw new Error('检查卖出引用失败，拒绝删除以保护数据一致性');
     if (sellTxs && sellTxs.length > 0) {
       throw new Error('该网格买入已被卖出引用，无法删除。请先删除对应的卖出记录。');
     }
-    await (supabase.from('grid_executions') as any)
+    const { error: cancelErr } = await (supabase.from('grid_executions') as any)
       .update({ status: 'cancelled', transaction_id: null })
       .eq('id', exec.id);
+    if (cancelErr) throw new Error(`取消买入执行记录失败: ${cancelErr.message}`);
   }
 }
 
@@ -705,6 +649,41 @@ export async function removeHoldingWithTransactions(fundCode: string): Promise<v
 // 在途交易处理
 // ============================================
 
+async function buildPendingNavCache(
+  pendingTransactions: any[]
+): Promise<{ navCache: Map<string, { nav: number; navDate: string }>; errors: string[] }> {
+  const fundGroups = new Map<string, { confirmDates: string[] }>();
+  for (const tx of pendingTransactions) {
+    const code = tx.fund_code;
+    const confirmDate = tx.confirm_date || tx.date;
+    if (!fundGroups.has(code)) fundGroups.set(code, { confirmDates: [] });
+    fundGroups.get(code)!.confirmDates.push(confirmDate);
+  }
+
+  const navCache = new Map<string, { nav: number; navDate: string }>();
+  const errors: string[] = [];
+
+  for (const [code, group] of fundGroups) {
+    try {
+      const sortedDates = [...new Set(group.confirmDates)].sort((a, b) => a.localeCompare(b));
+      const earliest = sortedDates[0];
+      const today = formatLocalDate(new Date());
+      const history = await fetchFundHistory(code, 100, 1, earliest, today);
+
+      for (const confirmDate of sortedDates) {
+        const match = history.find(h => h.date === confirmDate && h.nav > 0);
+        if (match) {
+          navCache.set(`${code}_${confirmDate}`, { nav: match.nav, navDate: match.date });
+        }
+      }
+    } catch (err) {
+      errors.push(`${code}: 净值获取失败 — ${err instanceof Error ? err.message : '未知错误'}`);
+    }
+  }
+
+  return { navCache, errors };
+}
+
 export interface ProcessPendingResult {
   processedCount: number;
   pendingCount: number;
@@ -727,189 +706,183 @@ export async function processPendingTransactions(): Promise<ProcessPendingResult
       return { processedCount: 0, pendingCount: 0, errors: [] };
     }
 
-  const { data: pendingTxData, error: pendingError } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('status', 'pending');
-  if (pendingError) {
-    return { processedCount: 0, pendingCount: 0, errors: [`查询在途交易失败: ${pendingError.message}`] };
-  }
-  const pendingTransactions = pendingTxData as any[] | null;
-
-  if (!pendingTransactions || pendingTransactions.length === 0) {
-    return { processedCount: 0, pendingCount: 0, errors: [] };
-  }
-
-  // 按基金分组，一次性获取历史净值（减少 Edge Function 调用次数）
-  const fundGroups = new Map<string, { confirmDates: string[] }>();
-  for (const tx of pendingTransactions) {
-    const code = tx.fund_code;
-    const confirmDate = tx.confirm_date || tx.date;
-    if (!fundGroups.has(code)) fundGroups.set(code, { confirmDates: [] });
-    fundGroups.get(code)!.confirmDates.push(confirmDate);
-  }
-
-  const navCache = new Map<string, { nav: number; navDate: string }>();
-  const errors: string[] = [];
-
-  for (const [code, group] of fundGroups) {
-    try {
-      const sortedDates = [...new Set(group.confirmDates)].sort((a, b) => a.localeCompare(b));
-      const earliest = sortedDates[0];
-      const today = formatLocalDate(new Date());
-      // 一次性获取从最早确认日到今天的历史净值
-      const history = await fetchFundHistory(code, 100, 1, earliest, today);
-
-      for (const confirmDate of sortedDates) {
-        const cacheKey = `${code}_${confirmDate}`;
-        const match = history.find(h => h.date === confirmDate && h.nav > 0);
-        if (match) {
-          navCache.set(cacheKey, { nav: match.nav, navDate: match.date });
-        }
-      }
-
-      // 修复 #3：取不到确认日的真实净值时，不再降级到「最新净值」凑数成交。
-      // 用错误净值确认会算错份额/金额。此处留空，由后续逐笔循环按确认日是否到期
-      // 决定「保持 pending 静默等待」或「写告警」。
-    } catch (err) {
-      errors.push(`${code}: 净值获取失败 — ${err instanceof Error ? err.message : '未知错误'}`);
+    const { data: pendingTxData, error: pendingError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('status', 'pending');
+    if (pendingError) {
+      return { processedCount: 0, pendingCount: 0, errors: [`查询在途交易失败: ${pendingError.message}`] };
     }
-  }
+    const pendingTransactions = pendingTxData as any[] | null;
+  
+    if (!pendingTransactions || pendingTransactions.length === 0) {
+      return { processedCount: 0, pendingCount: 0, errors: [] };
+    }
+  
+    const { navCache, errors } = await buildPendingNavCache(pendingTransactions);
 
-  let processedCount = 0;
-
-  for (const transaction of pendingTransactions) {
-    const confirmDate = transaction.confirm_date || transaction.date;
-    try {
-      const cacheKey = `${transaction.fund_code}_${confirmDate}`;
-      const navInfo = navCache.get(cacheKey);
-      if (!navInfo) {
-        // 修复 #3：取不到确认日真实净值时不降级成交。
-        // 确认日尚未到期（未来日期）→ 正常等待，静默保持 pending；
-        // 确认日已过且超过阈值仍无净值 → 写告警提示人工处理。
-        const todayStr = formatLocalDate(new Date());
-        const confirmObj = new Date(confirmDate);
-        const isPast = !isNaN(confirmObj.getTime()) && confirmDate < todayStr;
-        if (isPast) {
-          const daysSinceConfirm = Math.floor((Date.now() - confirmObj.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysSinceConfirm > PENDING_ALERT_DAYS_THRESHOLD) {
-            await createAlert({
-              transactionId: transaction.id,
-              fundCode: transaction.fund_code,
-              confirmDate,
-              reason: 'no_nav_data',
-              detail: `无法获取 ${transaction.fund_code} 在 ${confirmDate} 的净值（已超过 ${PENDING_ALERT_DAYS_THRESHOLD} 天）`,
-            });
-            errors.push(`${transaction.fund_code}: 无法获取净值`);
+    let processedCount = 0;
+  
+    for (const transaction of pendingTransactions) {
+      const confirmDate = transaction.confirm_date || transaction.date;
+      try {
+        const cacheKey = `${transaction.fund_code}_${confirmDate}`;
+        const navInfo = navCache.get(cacheKey);
+        if (!navInfo) {
+          // 修复 #3：取不到确认日真实净值时不降级成交。
+          // 确认日尚未到期（未来日期）→ 正常等待，静默保持 pending；
+          // 确认日已过且超过阈值仍无净值 → 写告警提示人工处理。
+          const todayStr = formatLocalDate(new Date());
+          const confirmObj = new Date(confirmDate);
+          const isPast = !isNaN(confirmObj.getTime()) && confirmDate < todayStr;
+          if (isPast) {
+            const daysSinceConfirm = Math.floor((Date.now() - confirmObj.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysSinceConfirm > PENDING_ALERT_DAYS_THRESHOLD) {
+              await createAlert({
+                transactionId: transaction.id,
+                fundCode: transaction.fund_code,
+                confirmDate,
+                reason: 'no_nav_data',
+                detail: `无法获取 ${transaction.fund_code} 在 ${confirmDate} 的净值（已超过 ${PENDING_ALERT_DAYS_THRESHOLD} 天）`,
+              });
+              errors.push(`${transaction.fund_code}: 无法获取净值`);
+            }
           }
-        }
-        // 保持 pending，等待真实净值
-        continue;
-      }
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const confirmDateObj = new Date(confirmDate);
-      const navDateObj = new Date(navInfo.navDate);
-
-      if (isNaN(confirmDateObj.getTime()) || isNaN(navDateObj.getTime())) {
-        await createAlert({
-          transactionId: transaction.id,
-          fundCode: transaction.fund_code,
-          confirmDate,
-          reason: 'api_error',
-          detail: `无效日期: confirmDate=${confirmDate}, navDate=${navInfo.navDate}`,
-        });
-        errors.push(`${transaction.fund_code}: 日期无效`);
-        continue;
-      }
-
-      if (navDateObj.getTime() < confirmDateObj.getTime()) {
-        if (confirmDateObj < today) {
-          const daysSinceConfirm = Math.floor((today.getTime() - confirmDateObj.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysSinceConfirm > PENDING_ALERT_DAYS_THRESHOLD) {
-            await createAlert({
-              transactionId: transaction.id,
-              fundCode: transaction.fund_code,
-              confirmDate,
-              reason: 'nav_date_mismatch',
-              detail: `净值日期(${navInfo.navDate})早于确认日期(${confirmDate})超过5天`,
-            });
-            continue;
-          }
-        } else {
+          // 保持 pending，等待真实净值
           continue;
         }
-      }
-
-      const tradePrice = navInfo.nav;
-      let shares: number;
-      let amount: number;
-
-      if (transaction.type === 'buy') {
-        amount = transaction.amount;
-        shares = amount / tradePrice;
-      } else {
-        shares = transaction.shares;
-        amount = shares * tradePrice;
-      }
-
-      if (!Number.isFinite(shares) || !Number.isFinite(amount)) {
-        throw new Error(`计算结果无效: shares=${shares}, amount=${amount}`);
-      }
-
-      const roundedShares = Math.round(shares * 10000) / 10000;
-      const roundedAmount = Math.round(amount * 100) / 100;
-
-      const { error: updateError } = await (supabase.from('transactions') as any).update({
-        nav: tradePrice,
-        shares: roundedShares,
-        amount: roundedAmount,
-        status: 'completed',
-      }).eq('id', transaction.id);
-
-      if (updateError) {
-        throw new Error(`更新失败: ${updateError.message}`);
-      }
-
-      // 修复 #6：网格买入在途确认后，把真实成交净值/份额回填到 grid_executions，
-      // 避免网格的 remaining_shares / capital_deployed 永久停留在下单时的估值。
-      if (transaction.type === 'buy' && transaction.grid_execution_id) {
-        try {
-          await (supabase.from('grid_executions') as any).update({
-            executed_nav: tradePrice,
-            executed_amount: roundedAmount,
-            executed_shares: roundedShares,
-            remaining_shares: roundedShares,
-          }).eq('id', transaction.grid_execution_id);
-        } catch (e) {
-          console.warn(`回填 grid_execution 成交净值失败: ${e}`);
+  
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const confirmDateObj = new Date(confirmDate);
+        const navDateObj = new Date(navInfo.navDate);
+  
+        if (isNaN(confirmDateObj.getTime()) || isNaN(navDateObj.getTime())) {
+          await createAlert({
+            transactionId: transaction.id,
+            fundCode: transaction.fund_code,
+            confirmDate,
+            reason: 'api_error',
+            detail: `无效日期: confirmDate=${confirmDate}, navDate=${navInfo.navDate}`,
+          });
+          errors.push(`${transaction.fund_code}: 日期无效`);
+          continue;
         }
+  
+        if (navDateObj.getTime() < confirmDateObj.getTime()) {
+          if (confirmDateObj < today) {
+            const daysSinceConfirm = Math.floor((today.getTime() - confirmDateObj.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysSinceConfirm > PENDING_ALERT_DAYS_THRESHOLD) {
+              await createAlert({
+                transactionId: transaction.id,
+                fundCode: transaction.fund_code,
+                confirmDate,
+                reason: 'nav_date_mismatch',
+                detail: `净值日期(${navInfo.navDate})早于确认日期(${confirmDate})超过5天`,
+              });
+              continue;
+            }
+          } else {
+            continue;
+          }
+        }
+  
+        const tradePrice = navInfo.nav;
+        let shares: number;
+        let amount: number;
+  
+        if (transaction.type === 'buy') {
+          amount = transaction.amount;
+          shares = amount / tradePrice;
+        } else {
+          shares = transaction.shares;
+          amount = shares * tradePrice;
+        }
+  
+        if (!Number.isFinite(shares) || !Number.isFinite(amount)) {
+          throw new Error(`计算结果无效: shares=${shares}, amount=${amount}`);
+        }
+  
+        const roundedShares = Math.round(shares * 10000) / 10000;
+        const roundedAmount = Math.round(amount * 100) / 100;
+  
+        // H5 闭环：pending 卖出确认时也校验超卖（创建时 UI/服务层均跳过 pending，否则可创建 pending 卖出 999999 份后自动确认超卖）
+        if (transaction.type === 'sell') {
+          const { data: fundTxs, error: fundTxErr } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('fund_code', transaction.fund_code);
+          if (fundTxErr) throw new Error(`查询持仓失败: ${fundTxErr.message}`);
+          const available = getFundAvailableShares(
+            (fundTxs as any[] || []).map(mapTransaction),
+            transaction.fund_code
+          );
+          if (roundedShares > available + 1e-4) {
+            try {
+              await createAlert({
+                transactionId: transaction.id,
+                fundCode: transaction.fund_code,
+                confirmDate,
+                reason: 'oversell',
+                detail: `卖出 ${roundedShares} 份超过当前持仓 ${available.toFixed(4)} 份，未自动确认`,
+              });
+            } catch { /* 告警失败不影响主流程 */ }
+            errors.push(`${transaction.fund_code}: 卖出超过持仓，未确认`);
+            continue;
+          }
+        }
+  
+        const { error: updateError } = await (supabase.from('transactions') as any).update({
+          nav: tradePrice,
+          shares: roundedShares,
+          amount: roundedAmount,
+          status: 'completed',
+        }).eq('id', transaction.id);
+  
+        if (updateError) {
+          throw new Error(`更新失败: ${updateError.message}`);
+        }
+  
+        // 修复 #6：网格买入在途确认后，把真实成交净值/份额回填到 grid_executions，
+        // 避免网格的 remaining_shares / capital_deployed 永久停留在下单时的估值。
+        if (transaction.type === 'buy' && transaction.grid_execution_id) {
+          try {
+            await (supabase.from('grid_executions') as any).update({
+              executed_nav: tradePrice,
+              executed_amount: roundedAmount,
+              executed_shares: roundedShares,
+              remaining_shares: roundedShares,
+            }).eq('id', transaction.grid_execution_id);
+          } catch (e) {
+            console.warn(`回填 grid_execution 成交净值失败: ${e}`);
+          }
+        }
+  
+        processedCount++;
+      } catch (error) {
+        const msg = `${transaction.fund_code}: ${error instanceof Error ? error.message : String(error)}`;
+        try {
+          await createAlert({
+            transactionId: transaction.id,
+            fundCode: transaction.fund_code,
+            confirmDate,
+            reason: 'api_error',
+            detail: msg,
+          });
+        } catch (e) { /* 告警创建失败不影响主流程，但记录以便排查 */
+          console.warn('告警创建失败:', e);
+        }
+        errors.push(msg);
       }
-
-      processedCount++;
-    } catch (error) {
-      const msg = `${transaction.fund_code}: ${error instanceof Error ? error.message : String(error)}`;
-      try {
-        await createAlert({
-          transactionId: transaction.id,
-          fundCode: transaction.fund_code,
-          confirmDate,
-          reason: 'api_error',
-          detail: msg,
-        });
-      } catch { /* 告警创建失败不影响主流程 */ }
-      errors.push(msg);
     }
+  
+    return {
+      processedCount,
+      pendingCount: pendingTransactions.length - processedCount,
+      errors,
+    };
+  } finally {
+    // 处理完成后重置标记，允许下次调用
+    window.__pendingTransactionsProcessing = false;
   }
-
-  return {
-    processedCount,
-    pendingCount: pendingTransactions.length - processedCount,
-    errors,
-  };
-} finally {
-  // 处理完成后重置标记，允许下次调用
-  window.__pendingTransactionsProcessing = false;
-}
 }

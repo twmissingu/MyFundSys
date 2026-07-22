@@ -39,44 +39,43 @@ export async function createAlert(alert: {
   if (error) {
     try {
       await (supabase.from('pending_alerts') as any).insert(row);
-    } catch { /* 忽略 */ }
+    } catch (e) {
+      // 修复 #11：fallback insert 失败不再完全静默，至少记录以便排查（不阻塞主流程）
+      console.warn('告警 fallback insert 失败:', e);
+    }
   }
 }
 
 export async function fetchAlerts(): Promise<PendingAlert[]> {
   if (!isSupabaseConfigured()) return [];
-  try {
-    const { data, error } = await (supabase
-      .from('pending_alerts') as any)
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) return [];
-    return ((data as any[]) || []).map(mapDbAlert);
-  } catch {
-    return [];
-  }
+  // 修复 #8：错误不再返回 [] 掩盖（UI 无法区分"无告警"与"加载失败"），改为抛出供调用方处理
+  const { data, error } = await (supabase
+    .from('pending_alerts') as any)
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(`加载告警失败: ${error.message}`);
+  return ((data as any[]) || []).map(mapDbAlert);
 }
 
 export async function resolveAlert(alertId: string, status: 'resolved' | 'ignored'): Promise<void> {
   if (!isSupabaseConfigured()) return;
-  await (supabase.from('pending_alerts') as any).update({
+  const { error } = await (supabase.from('pending_alerts') as any).update({
     status,
     resolved_at: new Date().toISOString(),
   }).eq('id', alertId);
+  // 修复 #5：检查 error，避免更新失败时 UI 误移除仍未解决的告警
+  if (error) throw new Error(`更新告警状态失败: ${error.message}`);
 }
 
 export async function fetchUnresolvedAlertCount(): Promise<number> {
   if (!isSupabaseConfigured()) return 0;
-  try {
-    const { count, error } = await (supabase
-      .from('pending_alerts') as any)
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'unresolved');
-    if (error) return 0;
-    return count || 0;
-  } catch {
-    return 0;
-  }
+  // 修复 #8：错误不再返回 0 掩盖，改为抛出供调用方处理
+  const { count, error } = await (supabase
+    .from('pending_alerts') as any)
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'unresolved');
+  if (error) throw new Error(`加载告警数量失败: ${error.message}`);
+  return count || 0;
 }
 
 function mapDbAlert(row: any): PendingAlert {

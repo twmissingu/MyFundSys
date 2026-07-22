@@ -1,127 +1,213 @@
-import { describe, it, expect } from 'vitest';
-import { updateLocalHoldingAfterTransaction } from '../../services/navUpdateService';
-import type { Holding, Transaction } from '../../types';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
 
-// ---- 工具：构造测试用 Transaction ----
-function makeBuyTx(overrides: Partial<Transaction> = {}): Transaction {
-  return {
-    id: 'tx_001',
-    fundId: 'fund_001',
-    fundCode: '000001',
-    fundName: '华夏成长混合',
-    type: 'buy',
-    date: '2024-01-10',
-    amount: 1000,
-    price: 1.0,
-    shares: 1000,
-    createdAt: new Date().toISOString(),
-    ...overrides,
-  };
-}
+// Mock batchFetchNav（enrichHoldingsWithNav 的唯一外部依赖）
+const mockBatchFetchNav = vi.hoisted(() => vi.fn());
+vi.mock('../../services/fundApi', () => ({
+  batchFetchNav: mockBatchFetchNav,
+}));
 
-function makeSellTx(overrides: Partial<Transaction> = {}): Transaction {
-  return makeBuyTx({ type: 'sell', amount: 500, price: 1.5, shares: 333.33, id: 'tx_002', ...overrides });
-}
+// Mock supabase（useHoldings/useTransactions 的数据源）
+const mockSupabaseFrom = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/supabase', () => ({
+  supabase: { from: mockSupabaseFrom },
+  isSupabaseConfigured: vi.fn(() => true),
+}));
 
-function makeHolding(overrides: Partial<Holding> = {}): Holding {
-  return {
-    id: 'h_001',
-    fundId: 'fund_001',
-    fundCode: '000001',
-    fundName: '华夏成长混合',
-    shares: 1000,
-    avgCost: 1.0,
-    totalCost: 1000,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  };
-}
+// Mock navUpdateService（deriveLots/summarizeHoldings 等）
+vi.mock('../../services/navUpdateService', () => ({
+  deriveLots: vi.fn(() => []),
+  summarizeHoldings: vi.fn(() => []),
+  addTransactionWithHoldingUpdate: vi.fn(),
+  removeTransactionWithHoldingUpdate: vi.fn(),
+  removeHoldingWithTransactions: vi.fn(),
+}));
 
-describe('updateLocalHoldingAfterTransaction - 买入新基金', () => {
-  it('持仓不存在时，创建新持仓', () => {
-    const tx = makeBuyTx();
-    const result = updateLocalHoldingAfterTransaction(undefined, tx);
+// Mock dataChangeEvent（useHoldings/useTransactions 注册监听）
+vi.mock('../../utils/dataChangeEvent', () => ({ onDataChanged: vi.fn(() => () => {}) }));
 
-    expect(result.holding).not.toBeNull();
-    expect(result.holding!.fundCode).toBe('000001');
-    expect(result.holding!.shares).toBe(1000);
-    expect(result.holding!.avgCost).toBe(1.0);
-    expect(result.holding!.totalCost).toBe(1000);
-    expect(result.shouldDelete).toBe(false);
+import { mapTransaction, enrichHoldingsWithNav, useHoldings, useTransactions } from '../../hooks/useSync';
+import type { Transaction } from '../../types';
+
+// ============================================
+// mapTransaction：DB 行 → Transaction 映射（数据完整性关键）
+// ============================================
+describe('mapTransaction', () => {
+  it('完整映射 DB 行到 Transaction（snake_case → camelCase）', () => {
+    const raw = {
+      id: 'tx_001',
+      fund_code: '000001',
+      fund_name: '华夏成长',
+      type: 'buy',
+      date: '2024-01-10',
+      confirm_date: '2024-01-11',
+      amount: 1000,
+      nav: 1.5,
+      shares: 666.67,
+      fee: 1.2,
+      status: 'completed',
+      source: 'grid',
+      grid_execution_id: 'ge_001',
+      lot_id: 'lot_001',
+      created_at: '2024-01-10T00:00:00Z',
+    };
+    const tx = mapTransaction(raw);
+    expect(tx).toEqual({
+      id: 'tx_001',
+      fundId: '000001',
+      fundCode: '000001',
+      fundName: '华夏成长',
+      type: 'buy',
+      date: '2024-01-10',
+      confirmDate: '2024-01-11',
+      amount: 1000,
+      price: 1.5,
+      shares: 666.67,
+      fee: 1.2,
+      status: 'completed',
+      source: 'grid',
+      gridExecutionId: 'ge_001',
+      lotId: 'lot_001',
+      createdAt: '2024-01-10T00:00:00Z',
+    } as Transaction);
   });
 
-  it('新建持仓包含完整字段', () => {
-    const tx = makeBuyTx();
-    const result = updateLocalHoldingAfterTransaction(undefined, tx);
+  it('confirm_date 为 null 时回退到 date', () => {
+    const tx = mapTransaction({
+      id: 't1', fund_code: '000001', fund_name: 'f', type: 'buy',
+      date: '2024-01-10', confirm_date: null, amount: 100, nav: 1,
+      shares: 100, fee: 0, status: 'completed', created_at: '',
+    });
+    expect(tx.confirmDate).toBe('2024-01-10');
+  });
 
-    expect(result.holding!.id).toBeDefined();
-    expect(result.holding!.createdAt).toBeDefined();
-    expect(result.holding!.updatedAt).toBeDefined();
+  it('confirm_date 缺失（undefined）时回退到 date', () => {
+    const tx = mapTransaction({
+      id: 't1', fund_code: '000001', fund_name: 'f', type: 'buy',
+      date: '2024-01-10', amount: 100, nav: 1, shares: 100, fee: 0,
+      status: 'completed', created_at: '',
+    });
+    expect(tx.confirmDate).toBe('2024-01-10');
+  });
+
+  it('source 缺失时默认 manual', () => {
+    const tx = mapTransaction({
+      id: 't1', fund_code: '000001', fund_name: 'f', type: 'buy',
+      date: '2024-01-10', amount: 100, nav: 1, shares: 100, fee: 0,
+      status: 'completed', created_at: '',
+    });
+    expect(tx.source).toBe('manual');
+  });
+
+  it('nav 字段映射到 price（净值→价格）', () => {
+    const tx = mapTransaction({
+      id: 't1', fund_code: '000001', fund_name: 'f', type: 'buy',
+      date: '2024-01-10', amount: 100, nav: 2.5, shares: 40, fee: 0,
+      status: 'completed', created_at: '',
+    });
+    expect(tx.price).toBe(2.5);
   });
 });
 
-describe('updateLocalHoldingAfterTransaction - 买入追加', () => {
-  it('追加买入时份额正确累加', () => {
-    const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-    const tx = makeBuyTx({ amount: 500, price: 1.2, shares: 416.67 });
-
-    const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-    expect(result.holding!.shares).toBeCloseTo(1416.67, 1);
-    expect(result.holding!.totalCost).toBeCloseTo(1500, 1);
-    expect(result.shouldDelete).toBe(false);
+// ============================================
+// enrichHoldingsWithNav：净值增强持仓（市值/盈亏计算）
+// ============================================
+describe('enrichHoldingsWithNav', () => {
+  beforeEach(() => {
+    mockBatchFetchNav.mockReset();
   });
 
-  it('追加买入时均价重新计算', () => {
-    const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-    const tx = makeBuyTx({ amount: 1000, price: 2.0, shares: 500 });
+  it('空 summaries 返回空数组', async () => {
+    const result = await enrichHoldingsWithNav([]);
+    expect(result).toEqual([]);
+    expect(mockBatchFetchNav).not.toHaveBeenCalled();
+  });
 
-    const result = updateLocalHoldingAfterTransaction(existing, tx);
+  it('有 NAV 时计算 currentValue / profit / profitRate', async () => {
+    mockBatchFetchNav.mockResolvedValue(new Map([
+      ['000001', { nav: 2.0, navDate: '2024-01-10', name: '华夏成长' }],
+    ]));
+    const summaries = [{
+      fundCode: '000001', fundName: '华夏成长', shares: 100,
+      totalCost: 100, avgCost: 1.0,
+    }];
+    const result = await enrichHoldingsWithNav(summaries);
+    expect(result).toHaveLength(1);
+    expect(result[0].currentValue).toBe(200);   // 2.0 × 100
+    expect(result[0].profit).toBe(100);          // 200 − 100
+    expect(result[0].profitRate).toBe(1);        // 100 / 100
+    expect(result[0].currentNav).toBe(2.0);
+  });
 
-    // (1000+1000) / (1000+500) ≈ 1.333
-    expect(result.holding!.avgCost).toBeCloseTo(1.333, 2);
+  it('无 NAV 时 currentValue/profit 为 undefined（不用成本冒充市值）', async () => {
+    mockBatchFetchNav.mockResolvedValue(new Map()); // 该基金无净值
+    const summaries = [{
+      fundCode: '000001', fundName: '华夏成长', shares: 100,
+      totalCost: 100, avgCost: 1.0,
+    }];
+    const result = await enrichHoldingsWithNav(summaries);
+    expect(result).toHaveLength(1);
+    expect(result[0].currentValue).toBeUndefined();
+    expect(result[0].profit).toBeUndefined();
+    expect(result[0].currentNav).toBeUndefined();
+  });
+
+  it('summary.fundName 为空时用 navInfo.name 兜底', async () => {
+    mockBatchFetchNav.mockResolvedValue(new Map([
+      ['000001', { nav: 1.0, navDate: '2024-01-10', name: 'NAV基金名' }],
+    ]));
+    const summaries = [{
+      fundCode: '000001', fundName: '', shares: 100,
+      totalCost: 100, avgCost: 1.0,
+    }];
+    const result = await enrichHoldingsWithNav(summaries);
+    expect(result[0].fundName).toBe('NAV基金名');
+  });
+
+  it('totalCost 为 0 时 profitRate 为 0（避免除零）', async () => {
+    mockBatchFetchNav.mockResolvedValue(new Map([
+      ['000001', { nav: 1.5, navDate: '2024-01-10', name: 'f' }],
+    ]));
+    const summaries = [{
+      fundCode: '000001', fundName: 'f', shares: 100,
+      totalCost: 0, avgCost: 0,
+    }];
+    const result = await enrichHoldingsWithNav(summaries);
+    expect(result[0].profitRate).toBe(0);
   });
 });
 
-describe('updateLocalHoldingAfterTransaction - 卖出', () => {
-  it('卖出后份额正确减少', () => {
-    const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-    const tx = makeSellTx({ shares: 300, amount: 450 });
-
-    const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-    expect(result.holding!.shares).toBe(700);
-    expect(result.shouldDelete).toBe(false);
+// ============================================
+// useHoldings / useTransactions：M4 error 状态（H-4）
+// ============================================
+describe('useHoldings / useTransactions error 状态（H-4 M4）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('卖出后总成本按比例减少（使用成本基础而非卖出金额）', () => {
-    const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-    const tx = makeSellTx({ shares: 300, amount: 450 });
+  it('useHoldings 加载失败时设置 error 而非静默空数据', async () => {
+    mockSupabaseFrom.mockReturnValue({
+      select: vi.fn(() => Promise.resolve({ data: null, error: { message: 'RLS denied' } })),
+    });
 
-    const result = updateLocalHoldingAfterTransaction(existing, tx);
+    const { result } = renderHook(() => useHoldings());
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // totalCost = 1000 * (1 - 300/1000) = 700（按比例）
-    expect(result.holding!.totalCost).toBeCloseTo(700, 1);
+    expect(result.current.error).toContain('加载持仓失败');
+    expect(result.current.error).toContain('RLS denied');
+    expect(result.current.holdings).toEqual([]);
   });
 
-  it('卖出后均价不变', () => {
-    const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-    const tx = makeSellTx({ shares: 300, amount: 450 });
+  it('useTransactions 加载失败时设置 error 而非静默空数据', async () => {
+    mockSupabaseFrom.mockReturnValue({
+      select: vi.fn(() => Promise.resolve({ data: null, error: { message: 'network timeout' } })),
+    });
 
-    const result = updateLocalHoldingAfterTransaction(existing, tx);
+    const { result } = renderHook(() => useTransactions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // avgCost = 700/700 = 1.0（成本基础不变）
-    expect(result.holding!.avgCost).toBeCloseTo(1.0, 3);
-  });
-
-  it('全部卖出后应标记删除', () => {
-    const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-    const tx = makeSellTx({ shares: 1000, amount: 1500 });
-
-    const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-    expect(result.holding).toBeNull();
-    expect(result.shouldDelete).toBe(true);
+    expect(result.current.error).toContain('加载交易记录失败');
+    expect(result.current.error).toContain('network timeout');
+    expect(result.current.transactions).toEqual([]);
   });
 });

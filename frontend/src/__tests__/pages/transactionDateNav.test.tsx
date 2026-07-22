@@ -46,10 +46,10 @@ vi.mock('../../lib/supabase', () => ({
 
 const mockFetchFundNav = vi.hoisted(() => vi.fn());
 const mockFetchFundHistory = vi.hoisted(() => vi.fn());
-const mockSearchByCode = vi.hoisted(() => vi.fn());
+const mockSearchFunds = vi.hoisted(() => vi.fn());
 
 vi.mock('../../services/fundApi', () => ({
-  searchByCode: mockSearchByCode,
+  searchFunds: mockSearchFunds,
   fetchFundNav: mockFetchFundNav,
   fetchFundHistory: mockFetchFundHistory,
 }));
@@ -66,7 +66,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
     vi.clearAllMocks();
     mockFetchFundHistory.mockReset();
     mockFetchFundNav.mockReset();
-    mockSearchByCode.mockReset();
+    mockSearchFunds.mockReset();
   });
 
   afterEach(() => {
@@ -88,7 +88,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
     });
 
     await waitFor(() => {
-      expect(mockSearchByCode).toHaveBeenCalled();
+      expect(mockSearchFunds).toHaveBeenCalled();
     });
 
     const fundItem = screen.getByText(name);
@@ -104,7 +104,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
 
   describe('日期切换时自动重新计算', () => {
     it('买入：切换日期后自动用新净值重新计算份额', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-15' });
       
       mockFetchFundHistory.mockResolvedValueOnce([{ date: '2024-01-10', nav: 2.0, accNav: 2.5, dailyChangeRate: 1.0, buyStatus: '开放', sellStatus: '开放' }]);
@@ -139,7 +139,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
     });
 
     it('卖出：切换日期后自动用新净值重新计算金额', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-15' });
       
       mockFetchFundHistory.mockResolvedValueOnce([{ date: '2024-01-10', nav: 2.0, accNav: 2.5, dailyChangeRate: 1.0, buyStatus: '开放', sellStatus: '开放' }]);
@@ -181,7 +181,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
 
   describe('卖出时使用选中日期净值', () => {
     it('卖出时输入份额，使用 selectedDateNav 而非 currentNav 计算金额', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-15' });
       mockFetchFundHistory.mockResolvedValue([{ date: '2024-01-10', nav: 2.0, accNav: 2.5, dailyChangeRate: 1.0, buyStatus: '开放', sellStatus: '开放' }]);
 
@@ -210,7 +210,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
     });
 
     it('卖出时未获取到历史净值时使用 currentNav 计算', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.5, navDate: '2024-01-15' });
       
       // 精确匹配返回空，但下一交易日查找返回数据
@@ -246,7 +246,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
 
   describe('多次切换日期', () => {
     it('多次切换日期，每次都能正确获取净值并重新计算', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-15' });
       
       const navMap: Record<string, number> = {
@@ -293,7 +293,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
 
   describe('非交易日（净值待定）场景', () => {
     it('选择无净值的日期时，不计算份额且显示在途提示', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-15' });
       
       let callCount = 0;
@@ -325,7 +325,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
     });
 
     it('在途状态下手动输入金额不计算份额', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-15' });
       mockFetchFundHistory.mockResolvedValue([]);
 
@@ -351,7 +351,7 @@ describe('添加交易 - 日期切换与份额计算', () => {
 
   describe('历史非交易日自动匹配下一交易日', () => {
     it('选择历史非交易日时，自动匹配下一交易日净值并计算份额', async () => {
-      mockSearchByCode.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
+      mockSearchFunds.mockResolvedValue([{ code: '000001', name: '测试基金', type: '混合型' }]);
       mockFetchFundNav.mockResolvedValue({ code: '000001', name: '测试基金', nav: 1.0, navDate: '2024-01-15' });
       
       // First call: exact match returns empty

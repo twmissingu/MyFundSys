@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, SearchBar, SpinLoading } from 'antd-mobile';
 import { SearchOutline } from 'antd-mobile-icons';
-import { searchByCode, searchByName } from '../services/fundApi';
+import { searchFunds } from '../services/fundApi';
 import type { FundSearchResult } from '../types';
 import FavoriteFunds from '../components/FavoriteFunds';
 import './Layout.css';
@@ -22,7 +22,7 @@ const FundList: React.FC = () => {
       if (codeSearchText.trim().length >= 4) {
         setIsCodeSearching(true);
         try {
-          const results = await searchByCode(codeSearchText.trim());
+          const results = await searchFunds(codeSearchText.trim(), 'code');
           if (!cancelled) setCodeSearchResults(results);
         } catch {
           // 静默忽略搜索错误
@@ -47,7 +47,7 @@ const FundList: React.FC = () => {
       if (nameSearchText.trim().length >= 2) {
         setIsNameSearching(true);
         try {
-          const results = await searchByName(nameSearchText.trim());
+          const results = await searchFunds(nameSearchText.trim(), 'name');
           if (!cancelled) setNameSearchResults(results);
         } catch {
           // 静默忽略搜索错误

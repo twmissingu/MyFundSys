@@ -81,7 +81,9 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
         ...fund,
         historyData: historyMap[fund.fund_code] || []
       })));
-    } catch {
+    } catch (e) {
+      // 修复 #22：不再空 catch，至少记录以便排查
+      console.warn('加载趋势图失败:', e);
     } finally {
       setLoadingHistory(false);
     }
@@ -93,7 +95,9 @@ const FavoriteFunds: React.FC<FavoriteFundsProps> = ({ onSelectFund }) => {
 
   const handleRemove = async (id: string) => {
     try {
-      await supabase.from('favorite_funds').delete().eq('id', id);
+      // 修复 #21：检查 error，避免删除失败时 UI 误提示"已取消收藏"
+      const { error } = await supabase.from('favorite_funds').delete().eq('id', id);
+      if (error) throw new Error(error.message);
       await loadFavorites();
       Toast.show({ content: '已取消收藏', position: 'bottom' });
     } catch (error) {

@@ -88,6 +88,18 @@ export async function exportDatabase(): Promise<string> {
     supabase.from('favorite_funds').select('*'),
   ]);
 
+  // 修复：任一查询失败则拒绝导出，避免 `|| []` 兜底产生看似有效实则全空的备份（数据丢失）
+  const results: Array<[string, { data: unknown; error: { message: string } | null }]> = [
+    ['holdings', holdings],
+    ['transactions', transactions],
+    ['grid_strategies', gridStrategies],
+    ['grid_executions', gridExecutions],
+    ['favorite_funds', favoriteFunds],
+  ];
+  for (const [table, res] of results) {
+    if (res.error) throw new Error(`导出失败：查询 ${table} 失败: ${res.error.message}`);
+  }
+
   const data = {
     version: '3.0.0',
     exportDate: new Date().toISOString(),
@@ -114,22 +126,6 @@ function validateImportData(data: unknown): { holdings: unknown[]; transactions:
   if (holdings.length > 10000 || transactions.length > 100000) {
     throw new Error('导入数据量超限');
   }
-  // 拒绝原型污染键
-  const poisonKeys = ['__proto__', 'constructor', 'prototype'];
-  function hasPoison(obj: unknown, seen?: Set<object>): boolean {
-    if (!obj || typeof obj !== 'object') return false;
-    if (!seen) seen = new Set();
-    if (seen.has(obj)) return false;
-    seen.add(obj);
-    for (const [k, v] of Object.entries(obj)) {
-      if (poisonKeys.includes(k)) return true;
-      if (hasPoison(v, seen)) return true;
-    }
-    return false;
-  }
-  if (holdings.some(v => hasPoison(v)) || transactions.some(v => hasPoison(v))) {
-    throw new Error('导入数据包含非法键');
-  }
   return { holdings, transactions };
 }
 
@@ -140,9 +136,17 @@ export async function importDatabase(jsonString: string): Promise<void> {
 
   let data: unknown;
   try {
-    data = JSON.parse(jsonString);
-  } catch {
-    throw new Error('导入数据不是有效的 JSON');
+    data = JSON.parse(jsonString, (key) => {
+      if (['__proto__', 'constructor', 'prototype'].includes(key)) {
+        throw new Error('导入数据包含非法键');
+      }
+      return undefined;
+    });
+  } catch (e) {
+    if (e instanceof SyntaxError) {
+      throw new Error('导入数据不是有效的 JSON');
+    }
+    throw e;
   }
   const { holdings, transactions } = validateImportData(data);
 
@@ -160,10 +164,12 @@ export async function importDatabase(jsonString: string): Promise<void> {
   const txIds = await getAllIds('transactions');
   const geIds = await getAllIds('grid_executions');
   for (const id of txIds) {
-    await (supabase.from('transactions') as any).update({ grid_execution_id: null, lot_id: null }).eq('id', id);
+    const { error: fkErr } = await (supabase.from('transactions') as any).update({ grid_execution_id: null, lot_id: null }).eq('id', id);
+    if (fkErr) throw new Error(`清空交易外键失败: ${fkErr.message}`);
   }
   for (const id of geIds) {
-    await (supabase.from('grid_executions') as any).update({ transaction_id: null }).eq('id', id);
+    const { error: fkErr } = await (supabase.from('grid_executions') as any).update({ transaction_id: null }).eq('id', id);
+    if (fkErr) throw new Error(`清空网格执行外键失败: ${fkErr.message}`);
   }
 
   // ② 清空旧数据（子表在前）

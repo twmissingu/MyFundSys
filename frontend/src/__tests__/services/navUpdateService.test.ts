@@ -16,15 +16,14 @@ vi.mock('../../services/fundApi', () => ({
 }));
 
 import {
-  updateLocalHoldingAfterTransaction,
-  reverseTransactionOnHolding,
   canDeleteTransaction,
+  getFundAvailableShares,
   addTransactionWithHoldingUpdate,
   removeTransactionWithHoldingUpdate,
   removeHoldingWithTransactions,
   processPendingTransactions,
 } from '../../services/navUpdateService';
-import type { Holding, Transaction } from '../../types';
+import type { Transaction } from '../../types';
 
 // ---- 工具函数 ----
 
@@ -49,21 +48,6 @@ function makeSellTx(overrides: Partial<Transaction> = {}): Transaction {
   return makeBuyTx({ type: 'sell', amount: 500, price: 1.5, shares: 333.33, id: 'tx_002', ...overrides });
 }
 
-function makeHolding(overrides: Partial<Holding> = {}): Holding {
-  return {
-    id: 'h_001',
-    fundId: 'fund_001',
-    fundCode: '000001',
-    fundName: '华夏成长混合',
-    shares: 1000,
-    avgCost: 1.0,
-    totalCost: 1000,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  };
-}
-
 function makeAddTxPayload(overrides: Partial<Omit<Transaction, 'id' | 'createdAt'>> = {}): Omit<Transaction, 'id' | 'createdAt'> {
   return {
     fundId: 'fund_001',
@@ -86,162 +70,6 @@ beforeEach(() => {
   mockFetchFundHistory.mockReset();
   mockIsSupabaseConfigured.mockReturnValue(true);
   (window as any).__pendingTransactionsProcessing = false;
-});
-
-// ============================================
-// updateLocalHoldingAfterTransaction
-// ============================================
-
-describe('updateLocalHoldingAfterTransaction', () => {
-  describe('买入新基金', () => {
-    it('持仓不存在时，创建新持仓', () => {
-      const tx = makeBuyTx();
-      const result = updateLocalHoldingAfterTransaction(undefined, tx);
-
-      expect(result.holding).not.toBeNull();
-      expect(result.holding!.fundCode).toBe('000001');
-      expect(result.holding!.shares).toBe(1000);
-      expect(result.holding!.avgCost).toBe(1.0);
-      expect(result.holding!.totalCost).toBe(1000);
-      expect(result.shouldDelete).toBe(false);
-    });
-
-    it('卖出新基金且持仓不存在时，不创建持仓', () => {
-      const tx = makeSellTx();
-      const result = updateLocalHoldingAfterTransaction(undefined, tx);
-
-      expect(result.holding).toBeNull();
-      expect(result.shouldDelete).toBe(false);
-    });
-  });
-
-  describe('买入追加', () => {
-    it('追加买入时份额正确累加', () => {
-      const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-      const tx = makeBuyTx({ amount: 500, price: 1.2, shares: 416.67 });
-
-      const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-      expect(result.holding!.shares).toBeCloseTo(1416.67, 1);
-      expect(result.holding!.totalCost).toBeCloseTo(1500, 1);
-      expect(result.shouldDelete).toBe(false);
-    });
-
-    it('追加买入时均价重新计算', () => {
-      const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-      const tx = makeBuyTx({ amount: 1000, price: 2.0, shares: 500 });
-
-      const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-      expect(result.holding!.avgCost).toBeCloseTo(1.333, 2);
-    });
-  });
-
-  describe('卖出', () => {
-    it('卖出后份额正确减少', () => {
-      const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-      const tx = makeSellTx({ shares: 300, amount: 450 });
-
-      const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-      expect(result.holding!.shares).toBe(700);
-      expect(result.shouldDelete).toBe(false);
-    });
-
-    it('卖出后总成本按比例减少（使用成本基础而非卖出金额）', () => {
-      const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-      const tx = makeSellTx({ shares: 300, amount: 450 });
-
-      const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-      // totalCost = 1000 * (1 - 300/1000) = 700 （按比例，不使用 sell amount）
-      expect(result.holding!.totalCost).toBeCloseTo(700, 1);
-    });
-
-    it('卖出后均价不变（成本基础按比例减少）', () => {
-      const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-      const tx = makeSellTx({ shares: 300, amount: 450 });
-
-      const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-      // avgCost = 700/700 = 1.0（成本基础不变）
-      expect(result.holding!.avgCost).toBeCloseTo(1.0, 3);
-    });
-
-    it('全部卖出后应标记删除', () => {
-      const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-      const tx = makeSellTx({ shares: 1000, amount: 1500 });
-
-      const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-      expect(result.holding).toBeNull();
-      expect(result.shouldDelete).toBe(true);
-    });
-
-    it('卖出份额超过持有份额时标记删除', () => {
-      const existing = makeHolding({ shares: 500, avgCost: 1.0, totalCost: 500 });
-      const tx = makeSellTx({ shares: 1000, amount: 1500 });
-
-      const result = updateLocalHoldingAfterTransaction(existing, tx);
-
-      expect(result.holding).toBeNull();
-      expect(result.shouldDelete).toBe(true);
-    });
-  });
-});
-
-// ============================================
-// reverseTransactionOnHolding
-// ============================================
-
-describe('reverseTransactionOnHolding', () => {
-  describe('反向买入（删除买入交易）', () => {
-    it('反向买入后份额正确减少', () => {
-      const existing = makeHolding({ shares: 1500, avgCost: 1.2, totalCost: 1800 });
-      const tx = makeBuyTx({ amount: 500, price: 1.0, shares: 500 });
-
-      const result = reverseTransactionOnHolding(existing, tx);
-
-      expect(result.holding!.shares).toBe(1000);
-      expect(result.holding!.totalCost).toBe(1300);
-      expect(result.shouldDelete).toBe(false);
-    });
-
-    it('反向买入全部撤销后应标记删除', () => {
-      const existing = makeHolding({ shares: 1000, avgCost: 1.0, totalCost: 1000 });
-      const tx = makeBuyTx({ amount: 1000, price: 1.0, shares: 1000 });
-
-      const result = reverseTransactionOnHolding(existing, tx);
-
-      expect(result.holding).toBeNull();
-      expect(result.shouldDelete).toBe(true);
-    });
-  });
-
-  describe('反向卖出（删除卖出交易）', () => {
-    it('反向卖出后份额正确恢复（按比例还原成本基础）', () => {
-      // 卖出前: shares=1000, totalCost=1000 → 按比例卖出300份后: shares=700, totalCost=700
-      const existing = makeHolding({ shares: 700, avgCost: 1.0, totalCost: 700 });
-      const tx = makeSellTx({ shares: 300, amount: 450 });
-
-      const result = reverseTransactionOnHolding(existing, tx);
-
-      expect(result.holding!.shares).toBe(1000);
-      // totalCost = 700 * (700 + 300) / 700 = 1000（还原）
-      expect(result.holding!.totalCost).toBe(1000);
-      expect(result.shouldDelete).toBe(false);
-    });
-  });
-
-  describe('边界情况', () => {
-    it('持仓不存在时返回 null', () => {
-      const tx = makeBuyTx();
-      const result = reverseTransactionOnHolding(undefined, tx);
-
-      expect(result.holding).toBeNull();
-      expect(result.shouldDelete).toBe(false);
-    });
-  });
 });
 
 // ============================================
@@ -312,6 +140,47 @@ describe('canDeleteTransaction', () => {
 });
 
 // ============================================
+// getFundAvailableShares（防超卖）
+// ============================================
+describe('getFundAvailableShares', () => {
+  it('返回指定基金多批次可用份额之和', () => {
+    const txs = [
+      makeBuyTx({ id: 'b1', shares: 100 }),
+      makeBuyTx({ id: 'b2', shares: 50 }),
+    ];
+    expect(getFundAvailableShares(txs, '000001')).toBe(150);
+  });
+
+  it('扣除已卖出份额', () => {
+    const txs = [
+      makeBuyTx({ id: 'b1', shares: 100 }),
+      makeSellTx({ id: 's1', shares: 30 }),
+    ];
+    expect(getFundAvailableShares(txs, '000001')).toBe(70);
+  });
+
+  it('不计入在途买入（pending）', () => {
+    const txs = [
+      makeBuyTx({ id: 'b1', shares: 100, status: 'pending' }),
+      makeBuyTx({ id: 'b2', shares: 50, status: 'completed' }),
+    ];
+    expect(getFundAvailableShares(txs, '000001')).toBe(50);
+  });
+
+  it('无持仓返回 0（用于检测超卖）', () => {
+    expect(getFundAvailableShares([], '000001')).toBe(0);
+  });
+
+  it('只统计指定基金，忽略其他基金', () => {
+    const txs = [
+      makeBuyTx({ id: 'b1', fundCode: '000001', shares: 100 }),
+      makeBuyTx({ id: 'b2', fundCode: '000099', shares: 200 }),
+    ];
+    expect(getFundAvailableShares(txs, '000001')).toBe(100);
+  });
+});
+
+// ============================================
 // addTransactionWithHoldingUpdate
 // ============================================
 
@@ -377,6 +246,37 @@ describe('addTransactionWithHoldingUpdate', () => {
 
     const result = await addTransactionWithHoldingUpdate(makeAddTxPayload({ status: 'pending' }));
     expect(result.holdingUpdated).toBe(false);
+  });
+
+  it('卖出超过持仓时抛出错误（H5 服务层守卫）', async () => {
+    const existingBuy = {
+      id: 'b1', fund_code: '000001', fund_name: 'f', type: 'buy',
+      date: '2024-01-10', amount: 100, nav: 1, shares: 100, fee: 0,
+      status: 'completed', created_at: '',
+    };
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ data: [existingBuy], error: null }) })),
+      insert: vi.fn(() => ({ select: vi.fn(() => ({ single: vi.fn().mockResolvedValue({ data: { id: 'new' }, error: null }) })) })),
+    }));
+
+    await expect(
+      addTransactionWithHoldingUpdate(makeAddTxPayload({ type: 'sell', shares: 150, price: 1.5, amount: 225 }))
+    ).rejects.toThrow('超过当前持仓');
+  });
+
+  it('卖出不超过持仓时通过（H5 服务层守卫正向）', async () => {
+    const existingBuy = {
+      id: 'b1', fund_code: '000001', fund_name: 'f', type: 'buy',
+      date: '2024-01-10', amount: 100, nav: 1, shares: 100, fee: 0,
+      status: 'completed', created_at: '',
+    };
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ data: [existingBuy], error: null }) })),
+      insert: vi.fn(() => ({ select: vi.fn(() => ({ single: vi.fn().mockResolvedValue({ data: { id: 'new-tx-id' }, error: null }) })) })),
+    }));
+
+    const result = await addTransactionWithHoldingUpdate(makeAddTxPayload({ type: 'sell', shares: 50, price: 1.5, amount: 75 }));
+    expect(result.transactionId).toBe('new-tx-id');
   });
 });
 
@@ -531,6 +431,49 @@ describe('removeTransactionWithHoldingUpdate', () => {
 
     await expect(removeTransactionWithHoldingUpdate('txBuy')).rejects.toThrow('已被卖出引用');
   });
+
+  it('卖出引用检查查询失败时 fail-closed 拒绝删除（CRITICAL #1 修复）', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'transactions') {
+        return {
+          select: vi.fn((cols: string) => {
+            if (cols === 'id') {
+              // 卖出引用检查查询失败（网络错误）
+              return {
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockResolvedValue({ data: null, error: { message: 'network error' } }),
+                  }),
+                }),
+              };
+            }
+            // select('*') 取交易记录
+            return {
+              eq: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'txBuy', type: 'buy', grid_execution_id: 'ge_buy' }, error: null }),
+                }),
+              }),
+            };
+          }),
+          delete: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+        };
+      }
+      if (table === 'grid_executions') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'ge_buy', action: 'buy', transaction_id: 'txBuy' }, error: null }),
+            }),
+          }),
+          update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+        };
+      }
+      return {};
+    });
+
+    await expect(removeTransactionWithHoldingUpdate('txBuy')).rejects.toThrow('检查卖出引用失败');
+  });
 });
 
 // ============================================
@@ -684,6 +627,42 @@ describe('processPendingTransactions', () => {
     expect(result.processedCount).toBe(2);
     expect(result.pendingCount).toBe(0);
     expect(mockFetchFundHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('pending 网格买入确认后回填 grid_executions 真实成交净值/份额（H-6）', async () => {
+    const pendingTx = {
+      id: 'tx1', fund_code: '000001', fund_name: 'A', type: 'buy', amount: 1000, shares: 0,
+      date: '2024-03-10', confirm_date: '2024-03-11', status: 'pending', grid_execution_id: 'ge_buy',
+    };
+    const gridUpdatePayloads: any[] = [];
+    let txCallCount = 0;
+    mockFrom.mockImplementation((tableName: string) => {
+      if (tableName === 'transactions') {
+        txCallCount++;
+        if (txCallCount === 1) {
+          return { select: vi.fn(() => ({ eq: vi.fn(() => Promise.resolve({ data: [pendingTx], error: null })) })) };
+        }
+        return { update: vi.fn(() => ({ eq: vi.fn(() => Promise.resolve({ error: null })) })) };
+      }
+      if (tableName === 'grid_executions') {
+        return {
+          update: vi.fn((payload: any) => {
+            gridUpdatePayloads.push(payload);
+            return { eq: vi.fn(() => Promise.resolve({ error: null })) };
+          }),
+        };
+      }
+      return {};
+    });
+    mockFetchFundHistory.mockResolvedValue([{ date: '2024-03-11', nav: 2.0 }]);
+
+    await processPendingTransactions();
+
+    expect(gridUpdatePayloads).toHaveLength(1);
+    expect(gridUpdatePayloads[0].executed_nav).toBe(2.0);
+    expect(gridUpdatePayloads[0].executed_shares).toBe(500);   // 1000 / 2.0
+    expect(gridUpdatePayloads[0].remaining_shares).toBe(500);
+    expect(gridUpdatePayloads[0].executed_amount).toBe(1000);
   });
 
   it('取不到确认日净值且确认日在阈值内：保持 pending 不降级成交', async () => {
@@ -871,9 +850,21 @@ describe('processPendingTransactions', () => {
       if (tableName !== 'transactions') return {};
       callCount++;
       if (callCount === 1) {
+        // 初始查询 pending 交易
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => Promise.resolve({ data: [pendingTx], error: null })),
+          })),
+        };
+      }
+      if (callCount === 2) {
+        // H5 闭环：卖出超卖校验查询（返回一笔已完成买入 100 份，available=100，卖出 100 通过）
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => Promise.resolve({
+              data: [{ id: 'b1', fund_code: '000001', fund_name: 'A', type: 'buy', amount: 100, nav: 1, shares: 100, fee: 0, status: 'completed', date: '2024-03-01', created_at: '' }],
+              error: null,
+            })),
           })),
         };
       }

@@ -59,10 +59,9 @@ describe('searchByCode', () => {
     expect(results.find(r => r.code === '100001')).toBeUndefined();
   });
 
-  it('Supabase 报错时返回空数组', async () => {
+  it('Supabase 报错时抛出错误（修复 #17：不再返回空数组掩盖）', async () => {
     mockInvoke.mockResolvedValueOnce({ data: null, error: new Error('Network error') });
-    const results = await searchByCode('000');
-    expect(results).toEqual([]);
+    await expect(searchByCode('000')).rejects.toThrow();
   });
 });
 
@@ -167,16 +166,14 @@ describe('searchFunds', () => {
     expect(mockInvoke).toHaveBeenCalledWith('fund-search', { body: { keyword: '华夏' } });
   });
 
-  it('API 失败时返回空数组', async () => {
+  it('API 失败时抛出错误（修复 #17：不再返回空数组掩盖）', async () => {
     mockInvoke.mockRejectedValueOnce(new Error('API error'));
-    const results = await searchFunds('test', 'name');
-    expect(results).toEqual([]);
+    await expect(searchFunds('test', 'name')).rejects.toThrow('API error');
   });
 
-  it('Supabase 未配置时返回空数组', async () => {
+  it('Supabase 未配置时抛出错误', async () => {
     mockIsSupabaseConfigured.mockReturnValueOnce(false);
-    const results = await searchFunds('test', 'name');
-    expect(results).toEqual([]);
+    await expect(searchFunds('test', 'name')).rejects.toThrow('Supabase 未配置');
   });
 
   it('fund-search 返回非数组时返回空数组', async () => {
@@ -705,11 +702,10 @@ describe('fetchFundHistory', () => {
     expect(result[0].nav).toBe(1.5);
   });
 
-  it('Supabase error 时降级（返回空数组）', async () => {
+  it('Supabase error 时抛出错误（修复 #13：不再降级返回空数组）', async () => {
     mockInvoke.mockResolvedValueOnce({ data: null, error: new Error('Edge Function error') });
 
-    const result = await fetchFundHistory('000001');
-    expect(Array.isArray(result)).toBe(true);
+    await expect(fetchFundHistory('000001')).rejects.toThrow('获取历史净值失败');
   });
 
   it('自定义参数传递正确', async () => {
@@ -720,16 +716,14 @@ describe('fetchFundHistory', () => {
     });
   });
 
-  it('Supabase 未配置时返回空数组', async () => {
+  it('Supabase 未配置时抛出错误', async () => {
     mockIsSupabaseConfigured.mockReturnValueOnce(false);
-    const result = await fetchFundHistory('000001');
-    expect(result).toEqual([]);
+    await expect(fetchFundHistory('000001')).rejects.toThrow('Supabase 未配置');
   });
 
-  it('invoke 抛异常时返回空数组', async () => {
+  it('invoke 抛异常时传播错误（修复 #13）', async () => {
     mockInvoke.mockRejectedValueOnce(new Error('fail'));
-    const result = await fetchFundHistory('000001');
-    expect(result).toEqual([]);
+    await expect(fetchFundHistory('000001')).rejects.toThrow('fail');
   });
 
   it('fund-history 返回 null data 时返回空数组', async () => {
